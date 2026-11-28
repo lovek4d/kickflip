@@ -1960,6 +1960,26 @@ test('a reply written after an event\'s Working mark clears it for /api/working 
   assert.equal(card.working, false);
 });
 
+// docs/adr/2026-11-27-2345-the-working-build-reads-the-stamps-of-acted-on-working-and-delivered.md
+test("the orchestrator's command on a card clears its message's Working mark in /api/working, even when its change signal never arrived", async () => {
+  const at = new Date(Date.now() - 60000).toISOString();
+  await putWave(JSON.stringify({ internal: true, items: [{ id: 'W1', title: 'Work', lane: 'progress' }] }));
+  const sent = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/W1', text: 'Question' }) })).json();
+  fs.writeFileSync(path.join(site, 'data', 'working.json'), JSON.stringify({ events: { [sent.id]: at } }));
+  fs.writeFileSync(path.join(site, 'data', 'delivered.json'), JSON.stringify({ since: at, events: { [sent.id]: at } }));
+  await heard(path.join(site, 'data', 'working.json'), path.join(site, 'data', 'delivered.json'));
+  const state = async () => (await (await fetch(`${base}/api/working`)).json()).working.map((w) => w.id);
+  assert.deepEqual(await state(), [sent.id]);
+  // No change signal came with the write (a lost POST from the writing process): the file's own stamp moved.
+  const line = new Date().toISOString();
+  fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
+  fs.appendFileSync(path.join(site, 'data', 'threads', 't__W1.jsonl'), JSON.stringify({ ts: line, who: 'claude', text: 'Answered' }) + '\n');
+  const f = path.join(site, 'data', 'acted-on.json');
+  fs.writeFileSync(f, JSON.stringify({ cards: { 't/W1': line } }));
+  fs.utimesSync(f, new Date(Date.now() + 5000), new Date(Date.now() + 5000));
+  assert.deepEqual(await state(), []);
+});
+
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 test("a message in a stalled card's thread clears the orchestrator's stall, and reaches the orchestrator like any message", async () => {
   const at = new Date().toISOString();

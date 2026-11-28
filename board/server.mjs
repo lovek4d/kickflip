@@ -669,7 +669,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const outside = await outsideData();
     // A reply is a new file in data/replies, so the folder's own stamp moves with it: a reply whose change signal never
     // arrived (a lost POST from the writing process) still ends its event's Working mark here.
-    const key = JSON.stringify([dataVersion, outside, await fs.stat(replies).then((st) => st.mtimeMs, () => 0)]);
+    // The orchestrator's command on a card (acted-on.json), an event's Working mark and its delivery to the session
+    // (working.json, delivered.json) are each replaced by rename, so the file's own stamp moves with a write whose signal
+    // was lost (docs/adr/2026-11-27-2345-the-working-build-reads-the-stamps-of-acted-on-working-and-delivered.md).
+    const stamp = (file) => fs.stat(file).then((st) => st.mtimeMs, () => 0);
+    const key = JSON.stringify([dataVersion, outside, ...await Promise.all([replies, ...['acted-on', 'working', 'delivered'].map((n) => path.join(data, `${n}.json`))].map(stamp))]);
     if (shared?.key !== key) {
       const built = snapshot(outside).then(async (s) => ({ ...buildBoard(s), cardNotes: await cardNotesOf(s.files) }));
       shared = { key, built };
