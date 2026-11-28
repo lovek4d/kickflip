@@ -382,7 +382,7 @@ BoardView.part((B) => {
   // what counts, not the toggle.
   B.on(B.root, 'click', (ev) => {
     const card = ev.target.closest?.('details.item > summary')?.parentNode;
-    if (!card || ev.target.closest('button[data-card-menu], button[data-card-bell]')) return;
+    if (!card || ev.target.closest('button[data-card-menu], button[data-card-bell], button[data-confirm]')) return;
     if (card.open) { B.leaveCardQuestions(card.dataset.key); B.leaveCardNotes(card.dataset.key); return; }
     B.select(card.dataset.key, { board: false });
     B.followCardNotes(card.dataset.key, B.followCardQuestions(card.dataset.key));
