@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fetchPR, fetchPRs, reportOf, githubLogin, PR_VIEW_FIELDS } from './pr-report.mjs';
+import { fetchPR, fetchPRs, reportOf, checksPassed, githubLogin, PR_VIEW_FIELDS } from './pr-report.mjs';
 import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeRate, calls, queried } from '../shared/fake-gh.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
@@ -74,7 +74,7 @@ test('strictly filters since as a string, ignores unsubmitted reviews, and encod
   ].sort());
 });
 
-test('state fields follow null fallthrough, check conclusions and status-only pending counts', () => {
+test('state fields follow null fallthrough, and failing and pending read each check one way, as the badge counts do', () => {
   const view = prView({ head: '1234567890abcdef', isDraft: true, reviewDecision: '', statusCheckRollup: [
     { name: 'failure', conclusion: 'FAILURE', status: 'COMPLETED' },
     { name: 'error', conclusion: 'ERROR', status: 'COMPLETED' },
@@ -82,10 +82,10 @@ test('state fields follow null fallthrough, check conclusions and status-only pe
     { name: 'null conclusion', conclusion: null, state: 'FAILURE' },
     { name: 'empty conclusion', conclusion: '', state: 'FAILURE' },
     { name: '', context: 'fallback', conclusion: 'FAILURE' },
-    { name: 'running', status: 'IN_PROGRESS' }, { status: '' }, { status: null },
+    { name: 'running', status: 'IN_PROGRESS' }, { name: 'blank status', status: '' }, { name: 'null status', status: null },
   ] });
   const report = reportOf({ view, issueComments: [], reviewComments: [], reviews: [] }, { pr: '7', since, me: 'owner' });
-  assert.deepEqual(report, { pr: 7, state: 'OPEN', isDraft: true, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: '1234567890', failing: ['failure', 'error', 'legacy', 'null conclusion', ''], pending: 2, events: [], threadOnly: [],
+  assert.deepEqual(report, { pr: 7, state: 'OPEN', isDraft: true, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: '1234567890', failing: ['failure', 'error', 'legacy', 'null conclusion', 'empty conclusion', 'fallback'], pending: 2, events: [], threadOnly: [],
     title: null, additions: null, deletions: null, files: null, approved: false,
     url: null, mergedAt: null, headRefName: null, headRefOid: '1234567890abcdef', updatedAt: null, checks: { total: 10, fail: 6, pending: 2, state: 'fail' }, reviews: {} });
   const missing = reportOf({ view: {}, issueComments: [{ user: { login: 'ann' }, created_at: '2026-10-23T11:00:00Z' }], reviewComments: [{ created_at: '2026-10-23T12:00:00Z' }], reviews: [{ submitted_at: '2026-10-23T13:00:00Z' }] }, { ...input, me: 'owner' });
@@ -212,6 +212,34 @@ test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads
   assert.deepEqual([site.isDraft, site.failing, site.head], [true, ['lint'], 'abc1234567']);
   // The PR's Slack link and its reactions read its title, size and whether anyone approved.
   assert.deepEqual([site.title, site.additions, site.deletions, site.files, site.approved], ['Fix limiter', 84, 12, 5, true]);
+});
+
+// docs/adr/2026-11-28-0128-a-check-is-its-newest-run.md
+test("a check reads its newest run only, as GitHub's checks view does: a failed run a later pass replaced counts for nothing, the same job in another workflow is its own check, and REST and GraphQL read alike", async () => {
+  const run = (name, conclusion, startedAt, workflowName = 'ci') => ({ __typename: 'CheckRun', name, workflowName, status: 'COMPLETED', conclusion, startedAt, completedAt: startedAt });
+  const status = (context, state, startedAt) => ({ __typename: 'StatusContext', context, state, startedAt });
+  writePR(dir, 7, prView({ statusCheckRollup: [
+    run('gate', 'FAILURE', '2026-10-23T10:00:00Z'), run('gate', 'SUCCESS', '2026-10-23T10:06:00Z'),
+    status('deploy', 'FAILURE', '2026-10-23T10:01:00Z'), status('deploy', 'SUCCESS', '2026-10-23T10:02:00Z'),
+  ] }));
+  writePR(dir, 8, prView({ statusCheckRollup: [
+    run('gate', 'SUCCESS', '2026-10-23T10:06:00Z'), run('gate', 'FAILURE', '2026-10-23T10:00:00Z', 'nightly'),
+    run('lint', 'SUCCESS', '2026-10-23T10:00:00Z'), run('lint', 'TIMED_OUT', '2026-10-23T10:09:00Z'),
+  ] }));
+  writePR(dir, 9, prView({ statusCheckRollup: [
+    run('gate', 'FAILURE', '2026-10-23T10:00:00Z'), { __typename: 'CheckRun', name: 'gate', workflowName: 'ci', status: 'QUEUED', conclusion: null, startedAt: null },
+  ] }));
+  const { results } = await fetchPRs([7, 8, 9].map((pr) => ({ repo: 'o/r', pr })));
+  for (const [i, pr] of [7, 8, 9].entries()) {
+    const rest = await fetchPR({ ...input, pr, comments: false });
+    const read = (r) => { const { failing, pending, checks } = reportOf(r, { ...input, pr, me: 'owner' }); return { failing, pending, checks, passed: checksPassed(r.view.statusCheckRollup) }; };
+    assert.deepEqual(read(results[i]), read(rest), `PR ${pr} reads alike from GraphQL and REST`);
+  }
+  const read = (i) => { const { failing, pending, checks } = reportOf(results[i], { ...input, me: 'owner' }); return { failing, pending, checks, passed: checksPassed(results[i].view.statusCheckRollup) }; };
+  assert.deepEqual(read(0), { failing: [], pending: 0, checks: { total: 2, fail: 0, pending: 0, state: 'pass' }, passed: true });
+  assert.deepEqual(read(1), { failing: ['gate', 'lint'], pending: 0, checks: { total: 3, fail: 2, pending: 0, state: 'fail' }, passed: false });
+  // A rerun not yet started is newer than the run it replaces.
+  assert.deepEqual(read(2), { failing: [], pending: 1, checks: { total: 1, fail: 0, pending: 1, state: 'pending' }, passed: false });
 });
 
 test("a bot's APPROVED review does not set approved, a person's does", async () => {

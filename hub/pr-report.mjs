@@ -119,9 +119,27 @@ export async function markReady({ repo, pr }) {
   if (r.status !== 0) throw new Error(firstLine(r.stderr || `gh exited ${r.status}`));
 }
 
-// Whether a PR's checks all passed, from GraphQL's status check rollup: every check run completed as a success,
-// neutral or skip, and every status context a success. A PR with no checks has nothing to fail.
-export const checksPassed = (rollup) => rollup.every((c) => (c.__typename === 'StatusContext'
+// docs/adr/2026-11-28-0128-a-check-is-its-newest-run.md: a status check rollup lists every run on the head commit, a
+// rerun's replaced ones too, and a check is only its newest run, as GitHub's checks view reads it. A check run is its
+// workflow and name, a status its context; the newest is the latest startedAt, a run not yet started newest of all.
+const startOf = (c) => (c.startedAt ? Date.parse(c.startedAt) : Infinity);
+export function latestRuns(rollup) {
+  const newest = new Map();
+  for (const c of rollup) {
+    const check = JSON.stringify([c.workflowName ?? '', c.name || c.context || '']);
+    if (!newest.has(check) || startOf(c) >= startOf(newest.get(check))) newest.set(check, c);
+  }
+  return [...newest.values()];
+}
+// A check's run read one way by every reader of the rollup: failed, pending, or else passed or skipped.
+const FAILED = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
+const conclusionOf = (c) => (c.conclusion || c.state || '').toUpperCase();
+const failed = (c) => FAILED.includes(conclusionOf(c));
+const pendingRun = (c) => !failed(c) && ((c.status && c.status.toUpperCase() !== 'COMPLETED') || ['PENDING', 'EXPECTED'].includes(conclusionOf(c)));
+
+// Whether a PR's checks all passed: each check's newest run completed as a success, neutral or skip, and each status
+// context's a success. A PR with no checks has nothing to fail.
+export const checksPassed = (rollup) => latestRuns(rollup).every((c) => (c.__typename === 'StatusContext'
   ? c.state === 'SUCCESS' : c.status === 'COMPLETED' && ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion)));
 
 // The PR's view, its reviews, and unless comments is false its comments since the ISO time since.
@@ -150,7 +168,7 @@ const AUTHOR = 'author { __typename login }';
 // (docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md).
 const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid title additions deletions changedFiles url mergedAt headRefName updatedAt'
   + ` latestReviews(first: 50) { nodes { state ${AUTHOR} } }`
-  + ' commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes { __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }'
+  + ' commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes { __typename ... on CheckRun { name status conclusion startedAt checkSuite { workflowRun { workflow { name } } } } ... on StatusContext { context state createdAt } } } } } } }'
   + ` comments(last: 50) { nodes { databaseId ${AUTHOR} createdAt body url } }`
   + ` reviews(last: 50) { nodes { databaseId ${AUTHOR} submittedAt body state url } }`
   + ` reviewThreads(last: 50) { nodes { comments(first: 20) { nodes { databaseId ${AUTHOR} createdAt body url path line replyTo { databaseId } } } } }`;
@@ -167,16 +185,18 @@ async function graphql(query) {
 // REST's login for a GraphQL author: a bot's ends in [bot], as reportOf reads it.
 const user = (a) => (a?.login ? { login: a.__typename === 'Bot' ? `${a.login}[bot]` : a.login } : null);
 
-// A PR's CI for the board's badges, from a status check rollup: {total, fail, pending, state: fail | pending | pass | none}.
+// A GraphQL rollup entry in gh pr view's shape, as fetchPR reads it: a check run's workflow name and a status's time
+// as its startedAt.
+function restRun({ checkSuite, createdAt, ...c }) {
+  if (c.__typename === 'StatusContext') return { ...c, startedAt: createdAt ?? null };
+  return { ...c, startedAt: c.startedAt ?? null, workflowName: checkSuite?.workflowRun?.workflow?.name ?? '' };
+}
+
+// A PR's CI for the board's badges, from each check's newest run: {total, fail, pending, state: fail | pending | pass | none}.
 export function checksOf(rollup) {
-  let fail = 0, pending = 0;
-  for (const c of rollup) {
-    const concl = (c.conclusion || c.state || '').toUpperCase();
-    const status = (c.status || '').toUpperCase();
-    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(concl)) fail++;
-    else if ((status && status !== 'COMPLETED') || concl === 'PENDING' || concl === 'EXPECTED') pending++;
-  }
-  return { total: rollup.length, fail, pending, state: fail ? 'fail' : pending ? 'pending' : rollup.length ? 'pass' : 'none' };
+  const latest = latestRuns(rollup);
+  const fail = latest.filter(failed).length, pending = latest.filter(pendingRun).length;
+  return { total: latest.length, fail, pending, state: fail ? 'fail' : pending ? 'pending' : latest.length ? 'pass' : 'none' };
 }
 
 // docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md: each repo also lists its newest 100 open PRs'
@@ -205,7 +225,7 @@ export async function fetchPRs(prs, repos = []) {
     const reviewComments = (p.reviewThreads?.nodes ?? []).flatMap((t) => t.comments?.nodes ?? []).map((c) => ({ ...comment(c), path: c.path ?? null, line: c.line ?? null, in_reply_to_id: c.replyTo?.databaseId ?? null }));
     return {
       view: { state: p.state, isDraft: p.isDraft, reviewDecision: p.reviewDecision, mergeable: p.mergeable, mergeStateStatus: p.mergeStateStatus, headRefOid: p.headRefOid,
-        statusCheckRollup: p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [],
+        statusCheckRollup: (p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []).map(restRun),
         title: p.title ?? null, additions: p.additions ?? null, deletions: p.deletions ?? null, changedFiles: p.changedFiles ?? null,
         approved: (p.latestReviews?.nodes ?? []).some((r) => r.state === 'APPROVED' && r.author?.__typename !== 'Bot'),
         url: p.url ?? null, mergedAt: p.mergedAt ?? null, headRefName: p.headRefName ?? null, updatedAt: p.updatedAt ?? null,
@@ -235,11 +255,12 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
   const threadOnly = events.filter((e) => e.who === 'user' && !OWNER_KEYWORD.test(e.body ?? ''));
   const asked = events.filter((e) => !threadOnly.includes(e));
   const checks = view.statusCheckRollup ?? [];
+  const latest = latestRuns(checks);
   return {
     pr: Number(pr), state: view.state ?? null, isDraft: view.isDraft ?? null, reviewDecision: view.reviewDecision ?? null,
     mergeable: view.mergeable ?? null, mergeStateStatus: view.mergeStateStatus ?? null, head: view.headRefOid?.slice(0, 10) ?? null,
-    failing: checks.filter((c) => /FAILURE|ERROR/.test(c.conclusion ?? c.state ?? '')).map((c) => c.name ?? c.context ?? null),
-    pending: checks.filter((c) => (c.status ?? 'COMPLETED') !== 'COMPLETED').length, events: asked, threadOnly,
+    failing: latest.filter(failed).map((c) => c.name || c.context || null),
+    pending: latest.filter(pendingRun).length, events: asked, threadOnly,
     title: view.title ?? null, additions: view.additions ?? null, deletions: view.deletions ?? null, files: view.changedFiles ?? null,
     approved: Boolean(view.approved),
     // The board's badges (fetchPRs; a REST fetchPR view has none but the CI and the full head).

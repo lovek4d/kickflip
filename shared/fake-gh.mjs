@@ -147,7 +147,10 @@ if (args.length === 4 && args[0] === 'api' && args[1] === 'graphql' && args[2] =
     if (!view || view.fail) { data[alias] = { pullRequest: null }; errors.push({ path: [alias, 'pullRequest'], message: 'Could not resolve to a PullRequest with the number of ' + n + '.' }); continue; }
     const { statusCheckRollup = [], ...fields } = view;
     data[alias] = { pullRequest: { ...fields,
-      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: statusCheckRollup } } } }] },
+      // A fixture's rollup is in gh pr view's shape; GraphQL names a run's workflow through its suite and a status's time createdAt.
+      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: statusCheckRollup.map(({ workflowName, startedAt, ...c }) => (c.__typename === 'StatusContext'
+        ? { ...c, ...(startedAt ? { createdAt: startedAt } : {}) }
+        : { ...c, ...(startedAt ? { startedAt } : {}), ...(workflowName ? { checkSuite: { workflowRun: { workflow: { name: workflowName } } } } : {}) })) } } } }] },
       comments: { nodes: list('issue-comments', repo, n).map((c) => ({ databaseId: c.id, author: author(c.user), createdAt: c.created_at, body: c.body, url: c.html_url })) },
       reviews: { nodes: list('reviews', repo, n).map((r) => ({ databaseId: r.id, author: author(r.user), submittedAt: r.submitted_at, body: r.body, state: r.state, url: r.html_url })) },
       reviewThreads: { nodes: list('review-comments', repo, n).map((c) => ({ comments: { nodes: [{ databaseId: c.id, author: author(c.user), createdAt: c.created_at, body: c.body, url: c.html_url, path: c.path, line: c.line, replyTo: c.in_reply_to_id == null ? null : { databaseId: c.in_reply_to_id } }] } })) },

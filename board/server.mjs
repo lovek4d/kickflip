@@ -193,7 +193,7 @@
 //                                ~/.claude/kickflip/logs/merge-<id>-<time>.log, with no event and no session
 //                                (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). KICKFLIP_MERGE_CMD='["<cmd>", …]'
 //                                replaces node and board.mjs, called with --site <route> merge <key>. On a card with a
-//                                PR the server merges it (cards.mjs mergeCard) and appends no event; a refusal → 400
+//                                PR the server merges it (cards.mjs mergeCard) and appends no event; a refusal → 409
 //                                {error} and a thread line.
 //                                card-build {key} is the owner's Build: the server starts the build itself (runs.mjs
 //                                startTappedBuild, board/worktree.mjs boardWorktree) and launches its builder, Claude
@@ -1026,8 +1026,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         await tapMerge(here, key);
         runHeldMerge(key);
       }
-      // A refusal is a thread line too (cards.mjs mergeCard).
-      else if (effect.do === 'merge') await mergeCard(here, key, { tapped: true });
+      // A refusal is a thread line too (cards.mjs mergeCard), and the board's answer to the tap: 409, which the page's
+      // outbox drops rather than reading it not sent and sending it again (docs/adr/2026-11-28-0128-a-check-is-its-newest-run.md).
+      else if (effect.do === 'merge') {
+        try { await mergeCard(here, key, { tapped: true }); }
+        catch (e) { throw e instanceof BoardError ? Object.assign(e, { status: 409 }) : e; }
+      }
       else if (effect.do === 'build') {
         const full = !pullOf((await sharedBoard()).items, { cap: boardCap(readUsageGate({ dir: here })), pulled: await sentOf(PULL) }).free;
         // A build's launch wakes no session, so the tap answers with no event id.

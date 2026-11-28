@@ -360,8 +360,8 @@ BoardView.part((B) => {
         catch (e) {
           if (!B.alive()) return;
           if (e?.unreachable) { B.linkDown(); repaint(key); break; }
-          // A tap the board refused because its card moved since it was drawn (409) changed nothing and would only be
-          // refused again: it leaves the outbox, and the toast says where the card is.
+          // A tap the board refused (409), because its card moved since it was drawn or as a Merge's answer, is the board's
+          // word on it and is never sent again: it leaves the outbox, and the toast says why.
           if (e?.status === 409) {
             setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
             repaint(key);
