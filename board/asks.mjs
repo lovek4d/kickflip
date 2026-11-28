@@ -488,6 +488,10 @@ export async function copyUpload(from, to, f) {
   return { ...f, url: `uploads/${name}`, path: path.join(uploadsDir(to), name) };
 }
 
+// An ask the orchestrator filed stays its words when it moves: the one it arrives as is its orchestrator's, from route.
+// An ask carrying the owner's own text stays the owner's.
+const keptAsked = (ask, route) => (ask.data?.asked?.by === 'orchestrator' ? { asked: { by: 'orchestrator', route } } : {});
+
 // Sends a New ask to another board in the hub's manifest: there, an `ask` event with the owner's latest text, copies
 // of its uploads and `from {route, title, id}`, which wakes that board's session; here, an ask-moved line in the ask's
 // thread linking to its card there, which says it lives there now (movedLine). Cards the ask became, none of them started, are dropped, leaving
@@ -508,7 +512,7 @@ export async function moveAsk(site, eventId, route, { note, command = 'ask move'
   for (const f of [...(ask.data?.files || []), ...edits.flatMap((e) => e.data.files || [])]) files.push(await copyUpload(site, target.dir, f));
   const from = { route: path.basename(site), title: (await boardConfig(site)).title, id: eventId };
   const body = edited ? edited.data.text : ask.data?.text || '';
-  const id = await appendEvent(target, 'ask', { text: body, ...(files.length ? { files } : {}), from, ...noteOf(note) });
+  const id = await appendEvent(target, 'ask', { text: body, ...(files.length ? { files } : {}), from, ...keptAsked(ask, from.route), ...noteOf(note) });
   const link = `/${route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
   await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: target.title }, { link });
   for (const key of state?.items || []) {
@@ -549,7 +553,7 @@ export async function passAsk(site, eventId, reason, { boards = listBoards() } =
     const files = [];
     for (const f of [...(ask.data?.files || []), ...edits.flatMap((e) => e.data.files || [])]) files.push(await copyUpload(site, target.dir, f));
     const intent = Object.fromEntries(['request', 'quick'].filter((k) => ask.data[k] !== undefined).map((k) => [k, ask.data[k]]));
-    const id = await appendEvent(target, 'ask', { text: edits.at(-1)?.data.text ?? ask.data.text ?? '', ...(files.length ? { files } : {}), ...intent,
+    const id = await appendEvent(target, 'ask', { text: edits.at(-1)?.data.text ?? ask.data.text ?? '', ...(files.length ? { files } : {}), ...intent, ...keptAsked(ask, here),
       routed: { ...routed, reason: next[0].reason, at: new Date().toISOString(), next: next.slice(1), passed: [...(routed.passed || []), passed] } });
     link = `/${target.route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
     await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: target.title }, { link });
@@ -758,7 +762,7 @@ export async function handoff(site, ref, { to, note, done } = {}) {
   const route = path.basename(site);
   const notes = item.plan ? `\n\nNotes: /${route}/notes.html?item=${encodeURIComponent(ref)}` : '';
   const from = { route, title: (await boardConfig(site)).title, key: ref, ref: await cardName(site, ref) };
-  const id = await appendEvent(target, 'ask', { text: `${item.title}${notes}`, from, ...noteOf(note) });
+  const id = await appendEvent(target, 'ask', { text: `${item.title}${notes}`, from, asked: { by: 'orchestrator', route }, ...noteOf(note) });
   // A running board files the ask as it takes the event; one that is down, here.
   await fileAsk(target.dir, id);
   const made = await askCardOf(target.dir, id);

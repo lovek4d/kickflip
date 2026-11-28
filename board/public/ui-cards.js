@@ -562,9 +562,9 @@
   // board asked this one until its orchestrator answers it (the board's boardAsks, domain.mjs newBoardAsks).
   const unreadSince = (seen, key, at) => String(at) > String(seen[key] || '');
   function newEntries(d, seen) {
-    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, ref: it.ref, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files, asked: it.ask.asked }));
+    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, ref: it.ref, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files, asked: it.ask.asked, by: it.ask.by }));
     const made = d.items.filter((it) => it.ingested && unreadSince(seen, it.key, it.ingested.at))
-      .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, files: it.ingested.files, asked: it.ingested.asked, made: it, lane: it.lane }));
+      .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, files: it.ingested.files, asked: it.ingested.asked, by: it.ingested.by, made: it, lane: it.lane }));
     const added = (d.merges || []).filter((m) => unreadSince(seen, m.key, m.at))
       .map((m) => ({ id: m.id, key: m.key, sent: m.askedAt, at: m.at, text: m.message, files: m.files, into: m, lane: d.items.find((it) => it.key === m.key)?.lane }));
     const questions = (d.boardAsks || []).map((q) => ({ id: q.id, sent: q.sent, text: q.text, question: q }));
@@ -621,7 +621,7 @@
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
       : deleting || askLine(e.ask);
     const body = `<div class="new-msg">${marked(e.text, words, esc)}</div>${e.note ? `<blockquote class="quote new-note">${esc(e.note)}</blockquote>` : ''}${globalThis.BoardUI.attachments(e.files)}`;
-    return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), line].filter(Boolean).join(' · ')}</div></div>`;
+    return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), e.by && esc(e.by), line].filter(Boolean).join(' · ')}</div></div>`;
   }
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
   // A hub Routed row (hub/router.mjs routedRows), drawn as a New entry: a blue link to the card it

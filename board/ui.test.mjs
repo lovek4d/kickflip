@@ -2447,6 +2447,9 @@ test("an ask's link line opens the work it became, and a thread line opens a lin
   assert.match(arrived, /class="msg status-line request hub tone-blue"><span[^]*<a href="\/orch\/#selectedCard=w%2FA1">Handed from \/orch · A1<\/a>/);
   assert.match(arrived, /<blockquote class="quote">Yours now<\/blockquote>/);
   assert.doesNotMatch(text(arrived), /Moved from/);
+  const handedAsk = ui.threadMessages([{ ts: ago(1), who: 'claude', via: 'ask', kind: 'ask', asked: true, by: "/orch's orchestrator", text: 'Fix **the** header', eventId: 'b1', reply: null, state: 'waiting' }]);
+  assert.match(handedAsk, /class="who">\/orch(?:'|&#39;)s orchestrator<\/div>/);
+  assert.match(handedAsk, /<strong>the<\/strong>/);
 });
 
 test("a thread's links to this hub's pages open in place, and only other origins open a new window", () => {

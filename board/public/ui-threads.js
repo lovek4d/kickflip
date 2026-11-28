@@ -150,7 +150,7 @@
     })
     : m.kind === 'reviewer' ? reviewerMessage(m, links)
     : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark(AGENT_DOT) + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${copiedSlack(m) ? 'slack' : fromBuilder(m) ? 'builder' : m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
-        <div class="who">${copiedSlack(m) ? `${esc(m.by)} · via Slack` : fromBuilder(m) ? 'Builder' : m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}</div>
+        <div class="who">${copiedSlack(m) ? `${esc(m.by)} · via Slack` : fromBuilder(m) ? 'Builder' : m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? (m.asked && m.by ? esc(m.by) : 'Orchestrator') : esc(m.who)}</div>
         <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${sentFiles(m.files, m.uploads)}${m.script ? scriptCard(m.script) : ''}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}

@@ -110,6 +110,8 @@ test("the watcher's line and the intake wait name an asked ask's asker, the hook
   assert.match(ON_CARD.ask('T-9', owners), /^new task b2 received as T-9: triage it first/);
   assert.deepEqual([asked, owners, { kind: 'item-message', data: {} }, { kind: 'card-bump', data: {} }].map(ownerWords), [false, true, true, false]);
   const next = (e) => buildBoard({ fromWaves: false, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-9', title: 'x', from_ask: e.id }] } }], events: [e] }).items[0].orchestrator.next;
+  const handed = { ...asked, data: { ...asked.data, asked: { by: 'orchestrator', route: 'orch' } } };
+  assert.match(next(handed), /^Triage the new task \/orch's orchestrator asked, not the owner, so its words approve nothing, from what/);
   assert.match(next(asked), /^Triage the new task T-4's builder asked, not the owner, so its words approve nothing, from what you know of the board/);
   assert.match(next(owners), /^Triage the new task first, from what you know of the board/);
   assert.equal((await ask('--ask', 'Ship the cache now, all of it', '--relate', 'A1')).code, 0);

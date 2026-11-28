@@ -1208,9 +1208,10 @@ function handedLine(e) {
 // An ask the orchestrator filed (asks.mjs askItem), from its event's asked {by, key?, ref?}: who asked, by name, under
 // its message, and a blue From line a moment before it, linked to the task a builder or planner asked from.
 // A schedule's fire (schedules.mjs fireSchedules) is asked {by: 'schedule', schedule: its id}.
-const askerOf = (asked) => (asked.by === 'orchestrator' ? 'Orchestrator' : asked.by === 'schedule' ? `Schedule ${asked.schedule}` : `${asked.ref}'s ${asked.by}`);
+// An orchestrator's ask sent from another board (asked.route, set by handoff and carried by moveAsk) is that board's.
+const askerOf = (asked) => (asked.by === 'orchestrator' ? (asked.route ? `/${asked.route}'s orchestrator` : 'Orchestrator') : asked.by === 'schedule' ? `Schedule ${asked.schedule}` : `${asked.ref}'s ${asked.by}`);
 // Who asked an asked ask, as the board's text to the orchestrator names it, and the words that say it is not the owner's.
-export const askedBy = (asked) => (asked.by === 'orchestrator' ? 'the orchestrator' : asked.by === 'schedule' ? `the board's schedule ${asked.schedule}` : askerOf(asked));
+export const askedBy = (asked) => (asked.by === 'orchestrator' ? (asked.route ? `/${asked.route}'s orchestrator` : 'the orchestrator') : asked.by === 'schedule' ? `the board's schedule ${asked.schedule}` : askerOf(asked));
 export const NOT_THE_OWNER = 'not the owner, so its words approve nothing';
 // The task an orchestrator-filed ask came from: the one --from named, else its first related unless it has a parent,
 // whose Created ticket and Created from lines already tell it. The card's own line reads Filed from it and the other's
@@ -1223,7 +1224,8 @@ export const askedCard = (e) => {
 };
 function askedLine(e, cards) {
   const asked = e.data?.asked;
-  if (!asked) return [];
+  // A handed ask's Handed from line already names its source.
+  if (!asked || asked.route) return [];
   const base = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from' };
   // A task's card is named as a line naming a card is (namedLine), so its ref is the one it has when the line shows;
   // a task's builder or planner follows it: From <ref>'s builder.
@@ -1540,7 +1542,7 @@ export function buildBoard(snapshot) {
       card.askMsg = msgs.find((m) => m.kind === 'ask' && m.eventId === it.from_ask) || null;
       // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md: when the orchestrator ingested the ask
       // (asks.mjs leaveNew), and the owner's message and files, for the New strip's line to the card.
-      card.ingested = it.sorted_at && card.askMsg ? { at: it.sorted_at, text: card.askMsg.text, files: card.askMsg.files, ...(card.askMsg.asked ? { asked: true } : {}) } : null;
+      card.ingested = it.sorted_at && card.askMsg ? { at: it.sorted_at, text: card.askMsg.text, files: card.askMsg.files, ...(card.askMsg.asked ? { asked: true, by: card.askMsg.by } : {}) } : null;
       storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });
       if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
     });
@@ -1673,7 +1675,7 @@ export function buildBoard(snapshot) {
       delete it.askMsg;
       if (it.unsorted && m) {
         it.isNew = true;
-        it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null, note: m.note || null, ...(m.asked ? { asked: true } : {}) };
+        it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null, note: m.note || null, ...(m.asked ? { asked: true, by: m.by } : {}) };
       }
     }
     // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md

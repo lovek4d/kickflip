@@ -938,7 +938,7 @@ test('handoff files a ticket on another board as a New task naming its source wi
   assert.equal(r.code, 0, r.err);
   const [handed, ...others] = lines(site('audit', 'data', 'events.jsonl'));
   assert.equal(others.length, 0);
-  assert.deepEqual([handed.kind, handed.data], ['ask', { text: 'feat: shared header\n\nNotes: /orch/notes.html?item=w%2FA1', from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1' }, note: 'Audit owns the header now' }]);
+  assert.deepEqual([handed.kind, handed.data], ['ask', { text: 'feat: shared header\n\nNotes: /orch/notes.html?item=w%2FA1', from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1' }, asked: { by: 'orchestrator', route: 'orch' }, note: 'Audit owns the header now' }]);
   // The new task is filed on the target as the handoff runs, so the line here names its ref.
   const made = read(site('audit', 'data', 'items.json')).items.find((i) => i.from_ask === handed.id);
   assert.equal(made.title, 'feat: shared header');
@@ -954,7 +954,7 @@ test('handoff --done closes the ticket after its Handed to line, and a handoff w
   const r = await board('handoff', 'w/A1', '--to', 'audit', '--done', '--site', 'orch');
   assert.equal(r.code, 0, r.err);
   const [handed] = lines(site('audit', 'data', 'events.jsonl'));
-  assert.deepEqual(handed.data, { text: 'fix: footer', from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1' } });
+  assert.deepEqual(handed.data, { text: 'fix: footer', from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1' }, asked: { by: 'orchestrator', route: 'orch' } });
   const item = read(at('waves', 'w', 'wave.json')).items[0];
   assert.equal(item.lane, 'done');
   const thread = lines(site('orch', 'data', 'threads', 'w__A1.jsonl'));
@@ -979,6 +979,13 @@ test('handoff of a New ask, by its event id or by its card, moves it as ask move
   assert.deepEqual(['e2', 'e3'].map((id) => lines(site('orch', 'data', 'threads', `ask__${id}.jsonl`)).at(-1).line), ['ask-moved', 'ask-moved']);
   assert.match((await board('handoff', 'w/A9', '--to', 'audit', '--site', 'orch')).err, /no item "A9"/);
   assert.match((await board('handoff', 'e2', '--site', 'orch')).err, /handoff needs --to <route>/);
+});
+
+test('moving an ask the orchestrator filed keeps it the orchestrator\'s, from this board; an owner\'s ask stays the owner\'s', async () => {
+  boardsManifest();
+  addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Filed by me', asked: { by: 'orchestrator', from: 'w/A1', ref: 'A1' } } }, { id: 'e3', ts: '2026-10-23T11:01:00Z', kind: 'ask', data: { text: 'Owner words' } });
+  for (const id of ['e2', 'e3']) assert.equal((await board('handoff', id, '--to', 'audit', '--site', 'orch')).code, 0);
+  assert.deepEqual(lines(site('audit', 'data', 'events.jsonl')).map((e) => e.data.asked), [{ by: 'orchestrator', route: 'orch' }, undefined]);
 });
 
 test('item set --from-ask on a card that came from another ask refuses and points to relate-ask; the same ask again stays fine', async () => {

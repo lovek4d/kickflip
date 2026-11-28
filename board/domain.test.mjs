@@ -902,6 +902,15 @@ test("a New card asked whether to move waits on the owner in Todo, then a move d
   assert.deepEqual(threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' }).map(({ line, text, link }) => [line, text, link]), [['handed-from', 'Handed from /orch', '/orch/#selectedCard=ask%3Aa1'], [undefined, 'Fix the header', undefined]]);
 });
 
+test("a handed ask reads as its sending board's orchestrator in the thread and in New, not as the owner's", () => {
+  const from = { route: 'paddock-web', title: 'Paddock Web', key: 'pad/PAD-3359', ref: 'PAD-3359' };
+  const arrived = askAt('b1', '2026-10-23T09:40:00Z', { data: { text: 'fix: checkout 500s', from, asked: { by: 'orchestrator', route: 'paddock-web' } } });
+  const msgs = threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' });
+  assert.deepEqual(msgs.map(({ who, line, by, asked }) => [who, line, by, asked]), [['claude', 'handed-from', undefined, undefined], ['claude', undefined, "/paddock-web's orchestrator", true]]);
+  const card = buildBoard({ fromWaves: false, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'fix: checkout 500s', from_ask: 'b1' }] } }], events: [arrived] }).items[0];
+  assert.deepEqual([card.ask.asked, card.ask.by], [true, "/paddock-web's orchestrator"]);
+});
+
 // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md
 test("a handed ticket's thread opens with a blue line naming its source board and ticket, linked there, and its ask carries the sender's note", () => {
   const from = { route: 'paddock-web', title: 'Paddock Web', key: 'pad/PAD-3359', ref: 'PAD-3359' };
