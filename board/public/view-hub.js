@@ -521,7 +521,7 @@ ${BoardNewTask.markup()}`,
       });
       // The settings whose answer is /_hub/api/hub's JSON, which repaints the page in place.
       const REPAINTS = ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/auto-build', '/_hub/settings/auto-review', '/_hub/settings/auto-merge', '/_hub/settings/idle-notification', '/_hub/settings/stage-splits', '/_hub/settings/pull-issues',
-        '/_hub/settings/tasks-in-progress', '/_hub/settings/serves', '/_hub/settings/land-tests', '/_hub/settings/pause-at', '/_hub/settings/keep-going'];
+        '/_hub/settings/tasks-in-progress', '/_hub/settings/serves', '/_hub/settings/land-tests', '/_hub/settings/pull-order', '/_hub/settings/pause-at', '/_hub/settings/keep-going'];
       // Whether a submit to action is Pull in issues' default turned on from Off, which asks first (below).
       const pullAsks = (action) => action === '/_hub/settings/pull-issues' && last?.boardDefaults?.auto?.find((v) => v.name === 'pull_issues')?.value === 'off';
       const forms = HubKit.forms(B, {

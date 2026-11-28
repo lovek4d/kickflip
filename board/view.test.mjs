@@ -10,7 +10,7 @@ import { miniDom } from './mini-dom.mjs';
 import { footerOf, buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 import { freshSync, stamp, patchSince } from './sync.mjs';
 import { transcriptChunk } from './transcript.mjs';
-import { autoViews, buildersView, orchestratorsView } from '../shared/model-views.mjs';
+import { autoViews, buildersView, orchestratorsView, pullOrderView } from '../shared/model-views.mjs';
 
 // The patch the server sends a page holding from once the board reads to, as board/sync.mjs makes it, between the
 // versions the two boards name. threads, {from, to}, are the cards' threads beside each board.
@@ -1221,7 +1221,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
-  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, capacity: { tasksInProgress: 5, landTests: 1 }, boardDefaults: { builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), auto: autoViews({}) }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '2 sites', host: 'mac',
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, capacity: { tasksInProgress: 5, landTests: 1, pullOrder: pullOrderView('oldest') }, boardDefaults: { builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), auto: autoViews({}) }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '2 sites', host: 'mac',
     groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }], pause: { state: 'normal', machine: { state: 'normal', reason: null } } };
   const settings = { devices: [], blocked: [], on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, reminders: { summary: '', note: '', empty: { title: '', sub: '' }, groups: [] }, closed: [] };
   const confirms = [];
@@ -1280,7 +1280,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   page.win.document.getElementById = () => true;
   page.win.FormData = class { constructor(form) { return form.querySelectorAll('input[name]').filter((i) => !i.disabled && (i.getAttribute('type') !== 'checkbox' || i.checked)).map((i) => [i.getAttribute('name'), i.value]); } };
   const choices = (on) => ['half', 'auto', 'off'].map((value) => ({ value, label: value, on: value === on }));
-  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, capacity: { tasksInProgress: 5, landTests: 1 }, boardDefaults: { builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), auto: autoViews({}) }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, capacity: { tasksInProgress: 5, landTests: 1, pullOrder: pullOrderView('oldest') }, boardDefaults: { builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), auto: autoViews({}) }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', builders: { name: 'builders', label: 'Builders', description: '', choices: choices('auto') }, orchestrators: { name: 'orchestrators', label: 'Orchestrators', description: '', choices: choices('auto') } },
     pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date(NOW).toISOString(), machine: { state: 'normal', reason: null } } };
   const settings = { devices: [], blocked: [], on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, reminders: { summary: '', note: '', empty: { title: '', sub: '' }, groups: [] }, closed: [], snooze: { choices: [] } };

@@ -2,6 +2,8 @@
 
 The owner on gh232-first-2 (11/05): "flip the order of the to-do items so that new items get appended to the bottom and that way old things actually leave the queue and the backlog doesn't grow in the back." Grill answers on #305: every board flips, with no setting (gh305-scope A); Todo shows the oldest card on top, the order the pull reads it in (gh305-shown A); a prototype round came first (gh305-proto A); a card that arrives glows briefly at the bottom, and Bump moves a card to the top as it does today (gh305-look A).
 
+Amended by [a hub setting orders the pull](2026-11-28-0300-a-hub-setting-orders-the-pull.md): under the hub's Pull order Newest first, the ready cards sit on top of Todo, the last readied first, and the pull takes from the top.
+
 This supersedes in part [each lane has one fixed order](2026-11-03-0223-each-lane-has-one-fixed-order.md) on how Todo lists the cards after the bumped ones, and [Todo has no queue](2026-11-05-0802-todo-has-no-queue.md) on "the rest newest first" and "else the newest".
 
 - **One flipped lane.** `laneOrder` (`board/public/ui-order.js`) lists Todo as bumped cards first (a New ask lines up with the rest from #331 on), the latest bump on top, then the rest oldest first by `sortAt` (when the card was made), a card with no time last, the first added to its wave file on top. Every other lane stays newest first.

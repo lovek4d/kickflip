@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
-import { read, update, updateSync, settingsFile, readCodexShare, setCodexShare, readAutoUpdate, setAutoUpdate, readLandTests, setLandTests, MAX_LAND_TESTS, readBoardDefaults, setBoardDefault } from './hub-settings.mjs';
+import { read, update, updateSync, settingsFile, readCodexShare, setCodexShare, readAutoUpdate, setAutoUpdate, readLandTests, setLandTests, MAX_LAND_TESTS, readBoardDefaults, setBoardDefault, readPullOrder, setPullOrder } from './hub-settings.mjs';
 import { setPauseAt } from './usage-gate.mjs';
 import { writeHubRules, readHubRules } from '../hub/rules.mjs';
 
@@ -93,4 +93,16 @@ test('updateSync writes before it returns and leaves no lock behind', async () =
   assert.equal(fs.existsSync(`${settingsFile(h)}.lock`), false);
   await update((file) => ({ ...file, c: 3 }), h);
   assert.deepEqual(read(h), { a: 1, b: 2, c: 3 });
+});
+
+// docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md
+test('Pull order reads oldest until settings.json says newest, and saves only its two words', async () => {
+  const h = home();
+  assert.equal(readPullOrder(h), 'oldest');
+  assert.equal(await setPullOrder('newest', h), 'newest');
+  assert.equal(readPullOrder(h), 'newest');
+  await assert.rejects(setPullOrder('random', h), { status: 400 });
+  assert.equal(readPullOrder(h), 'newest');
+  fs.writeFileSync(settingsFile(h), JSON.stringify({ pullOrder: 'sideways' }));
+  assert.equal(readPullOrder(h), 'oldest');
 });

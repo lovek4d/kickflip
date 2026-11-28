@@ -774,7 +774,8 @@ export const READY_EXPIRES_MS = 24 * 60 * 60 * 1000;
 // A ready card in Todo has ready_at, the time of its ready, and ready_main, the base branch's commit then. main is that
 // commit now: a card with no ready_main yet records it (and a ready_at, for a card readied before the record), and one
 // ready for READY_EXPIRES_MS whose main differs from its ready_main, blocked or not, goes back to staging with a line,
-// its notes kept, for the orchestrator's usual staging re-check. → the keys it re-staged
+// its notes kept, for the orchestrator's usual staging re-check, and keeps the card's first ready time as ready_first,
+// which the Pull order's Newest first sorts by (docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md). → the keys it re-staged
 export async function restageStaleReady(site, main, now = new Date()) {
   const restaged = [];
   const cards = await builtCards(site);
@@ -786,10 +787,11 @@ export async function restageStaleReady(site, main, now = new Date()) {
       if (item.phase !== 'ready' || card?.lane !== 'todo' || card.finished) continue;
       if (!item.ready_main) {
         item.ready_main = main;
+        if (!item.ready_at && item.created) item.ready_first ??= item.created;
         item.ready_at ??= now.toISOString();
         changed = true;
       } else if (item.ready_main !== main && now - Date.parse(item.ready_at) >= READY_EXPIRES_MS) {
-        Object.assign(item, { phase: 'staging', staged_at: now.toISOString() });
+        Object.assign(item, { phase: 'staging', staged_at: now.toISOString(), ready_first: item.ready_first ?? item.ready_at });
         delete item.ready_at;
         delete item.ready_main;
         changed = true;

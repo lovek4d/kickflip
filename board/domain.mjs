@@ -412,6 +412,8 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.
     stagedAt: lane === 'todo' && it.phase === 'staging' ? it.staged_at || null : null,
+    // docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md: when a ready Todo card was first readied, which Newest first orders by.
+    readyAt: lane === 'todo' && it.phase === 'ready' ? it.ready_first || it.ready_at || it.created || null : null,
     deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, ownerBlock, risk: it.risk || null, tags: it.tags || [], remindWhen: it.remind_when || null, bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
@@ -1726,6 +1728,7 @@ export function buildBoard(snapshot) {
     it.working = Boolean(it.workingSince);
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking') it.next = NO_NEXT;
     // Todo sorts strictly by created, which the start-up backfill (migrations.mjs migrateCreated) sets: a Todo card without it has no sortAt.
+    it.pullAt = snapshot.pullOrder === 'newest' ? it.readyAt ?? null : null;
     it.sortAt = SORT_AT[it.lane](it) || (it.lane === 'review' || it.lane === 'todo' ? null : it.updatedAt) || null;
   }
   for (const it of items) {
@@ -1953,7 +1956,7 @@ export const bumpIn = (items) => {
 // or an open owner question waits on (docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md,
 // docs/adr/2026-11-16-0400-a-card-waiting-on-the-owners-answer-takes-no-slot.md). A card in any other lane takes none.
 // pullable lists the cards ready to build, in board order, so bumped first and the
-// rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
+// rest by the hub's Pull order, oldest first by creation or last readied first (docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md, docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 // waiting lists the pulled cards not yet started that still hold a slot: the pullable ones. held counts the cards In Progress and waiting, and free is the slots left, the cap less held.
 // queue lists the pullable cards not pulled, the order the hub's turns take this board's cards in (build-turns.mjs), and pulls the ones that fit the free slots, the bumped ones first (byBump), then the ones blocking a card In Progress (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md,
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md). helpers lists every requested helper, {key, name}: a card's helpers

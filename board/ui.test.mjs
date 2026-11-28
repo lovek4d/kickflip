@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { fixedDate } from '../shared/fixed-clock.mjs';
 import { toneOf } from '../hub/usage.mjs';
 import { usageGate } from '../shared/usage-gate.mjs';
-import { buildersView, orchestratorsView } from '../shared/model-views.mjs';
+import { buildersView, orchestratorsView, pullOrderView } from '../shared/model-views.mjs';
 import { footerOf } from './domain.mjs';
 
 // The one time every test here builds its data from and every renderer counts to: each sandbox's Date stands still at it
@@ -2725,9 +2725,9 @@ test('the sidebar shows Claude’s week as a second bar once it is within the ne
 // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md
 // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
 test('Capacity, its own section, draws Maximum tasks in progress, Maximum parallel serves then Maximum parallel land tests, steppers posting one fewer or one more, from 1 to 99', () => {
-  const card = (tasksInProgress, landTests, serves = 10) => context.HubUI.capacityCard({ tasksInProgress, serves, landTests });
+  const card = (tasksInProgress, landTests, serves = 10) => context.HubUI.capacityCard({ tasksInProgress, serves, landTests, pullOrder: pullOrderView('oldest') });
   const both = card(4, 3, 6);
-  assert.match(text(both), /^Capacity Maximum tasks in progress − 4 \+ Hub-wide\. Each counts from its build starting until it lands\. Boards take turns, one card each\. Maximum parallel serves − 6 \+ Hub-wide\. Each open task worktree keeps one serve up\. Installs aren’t counted\. A busy host asks before it starts another\. Boards take turns, one card each\. Maximum parallel land tests − 3 \+ Hub-wide\. Lands run the tests their change affects\. Boards take turns, one card each\.$/);
+  assert.match(text(both), /^Capacity Maximum tasks in progress − 4 \+ Hub-wide\. Each counts from its build starting until it lands\. Boards take turns, one card each\. Maximum parallel serves − 6 \+ Hub-wide\. Each open task worktree keeps one serve up\. Installs aren’t counted\. A busy host asks before it starts another\. Boards take turns, one card each\. Maximum parallel land tests − 3 \+ Hub-wide\. Lands run the tests their change affects\. Boards take turns, one card each\. Pull order Oldest first Newest first Each board pulls its topmost Ready task first, the oldest by creation\. Bumped tasks still go first\.$/);
   assert.match(both, /action="\/_hub\/settings\/serves"[^]*value="5" aria-label="One fewer">[^]*value="7" aria-label="One more">/);
   assert.match(both, /<section class="capacity"><h2 class="label">Capacity<\/h2><div class="group"><div class="block">/);
   assert.match(both, /form class="segments ub-step" method="post" action="\/_hub\/settings\/tasks-in-progress" role="group" aria-label="Maximum tasks in progress"><button name="value" value="3" aria-label="One fewer">/);

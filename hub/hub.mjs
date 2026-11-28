@@ -111,6 +111,7 @@
 //                     taking Pull in issues' default would file (issue-pull.mjs defaultBacklog), or 502 {error}
 //   /_hub/settings/orchestrator-model POST value=opus|sonnet, Orchestrators (sessions.mjs changeOrchestratorModel)
 //                     → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/pull-order POST value=oldest|newest, Pull order (hub-settings.mjs setPullOrder)
 //   /_hub/settings/tasks-in-progress POST value=1..99, Maximum tasks in progress (hub-settings.mjs setTasksInProgress)
 //                     → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/serves POST value=1..99, Maximum parallel serves (hub-settings.mjs setServes) → /_hub/api/hub's
@@ -257,7 +258,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, setAlert, readAlerts, deliver } from './push.mjs';
-import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readTasksInProgress, setTasksInProgress, readServes, setServes, readAutoUpdate, setAutoUpdate, BOARD_DEFAULT_KEYS, readBoardDefaults } from '../shared/hub-settings.mjs';
+import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readTasksInProgress, setTasksInProgress, readServes, setServes, readPullOrder, setPullOrder, readAutoUpdate, setAutoUpdate, BOARD_DEFAULT_KEYS, readBoardDefaults } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -336,6 +337,7 @@ const VALUE_SETTINGS = {
     for (const line of await saveBoardDefault(key, form.get('value'), from)) stampedLog(`board defaults: ${line}`);
   }])),
   '/_hub/settings/tasks-in-progress': (form) => setTasksInProgress(form.get('value')),
+  '/_hub/settings/pull-order': (form) => setPullOrder(form.get('value')),
   '/_hub/settings/serves': (form) => setServes(form.get('value')),
   '/_hub/settings/land-tests': (form) => setLandTests(form.get('value')),
 };
@@ -1291,7 +1293,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), boardDefaults: readBoardDefaults(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), serves: readServes(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), boardDefaults: readBoardDefaults(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), pullOrder: readPullOrder(), serves: readServes(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: await routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pendingFor(null).map(shown),

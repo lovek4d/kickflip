@@ -1132,6 +1132,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     delete item.filed_held;
     delete item.ready_main;
     if (phase === 'ready') item.ready_at = new Date().toISOString(); else delete item.ready_at;
+    // docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md: a stale re-check's first ready time lasts until another phase.
+    if (phase !== 'ready' && phase !== 'staging') delete item.ready_first;
     if (phase === 'staging') item.staged_at = new Date().toISOString();
     if (triaged) item.triaged = { at: new Date().toISOString(), phase };
   }
@@ -1453,6 +1455,7 @@ export async function recordOwnerTap(site, kind, data, { blockEnds = true } = {}
     await appendCommand(site, key, { who: 'love', command: 'cancelled' });
     delete item.staged_at;
     delete item.ready_at;
+    delete item.ready_first;
     delete item.ready_main;
     item.phase = 'discussing';
     await writeJSON(source.file, itemFile);

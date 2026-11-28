@@ -85,6 +85,21 @@ export async function setTasksInProgress(value, home = os.homedir()) {
   return n;
 }
 
+// docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md
+// Pull order: which ready card the pull takes first, after bumped cards and the cards blocking one In Progress. oldest is
+// Todo's order by creation, newest the last readied. A missing or unknown stored value is oldest.
+export const PULL_ORDER_VALUES = ['oldest', 'newest'];
+export const readPullOrder = (home = os.homedir()) => {
+  const stored = read(home).pullOrder;
+  return PULL_ORDER_VALUES.includes(stored) ? stored : 'oldest';
+};
+// Throws {status: 400} for a value that isn't a choice.
+export async function setPullOrder(value, home = os.homedir()) {
+  if (!PULL_ORDER_VALUES.includes(value)) throw Object.assign(new Error('pull-order takes oldest or newest'), { status: 400 });
+  await update((file) => ({ ...file, pullOrder: value }), home);
+  return value;
+}
+
 // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
 // Maximum parallel serves: the card serves up at once across every board on the host (hub/try.mjs), 1 to 99,
 // MAX_SERVES unless settings.json says otherwise. Boards take turns at it (shared/turns.mjs).

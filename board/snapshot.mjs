@@ -16,6 +16,7 @@ import { archivedRefs, readActedOn, readArchivedTags, readAgents, readAskLinks, 
 import { itemNotes, readScreening } from './questions.mjs';
 import { opensPRs, settingsOf } from './settings.mjs';
 import { boardAt, githubStateFile } from '../hub/boards.mjs';
+import { readPullOrder } from '../shared/hub-settings.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
@@ -161,7 +162,7 @@ async function itemSnapshot(site, { cfg, github, local, hub, remote, branch }, f
   const settings = settingsOf(cfg);
   return { github, remote, branch, reviewers: opensPRs({ github, local, hub }, settingsOf(cfg, { hub })) ? cfg.reviewers || [] : [], fromWaves: cfg.items === 'waves',
     autoMerge: settings.auto_merge, skipDraft: settings.skip_draft, autoBuild: settings.auto_build, tickets: settings.tickets, files, threads: threadLines,
-    working: await readWorking(site), delivered: await readDelivered(site), actedOn: await readActedOn(site), autoReview: settings.auto_review,
+    working: await readWorking(site), delivered: await readDelivered(site), actedOn: await readActedOn(site), autoReview: settings.auto_review, pullOrder: readPullOrder(),
     incoming: await readJSON(path.join(data, 'incoming.json'), null), reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
 

@@ -1883,6 +1883,28 @@ test('Todo has no queue: every Todo card keeps its place, bumped first and the r
   assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R2', 10), bump('card-unbump', 'w/R2', 11)] }).items).pulls, ['w/R1', 'w/R2'], 'an unbump returns it to its place by time');
 });
 
+// docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md
+test('Pull order newest: the Ready lane and the pull take the last-readied card first, a bump and Oldest first unchanged', () => {
+  const at = (m) => `2026-11-04T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const items = [
+    { id: 'R1', title: 'feat: first', phase: 'ready', created: at(1), ready_at: at(20) },
+    { id: 'R2', title: 'feat: second', phase: 'ready', created: at(2), ready_at: at(10) },
+    { id: 'R3', title: 'feat: third', phase: 'ready', created: at(3), ready_at: at(15), ready_first: at(5) },
+    { id: 'R4', title: 'feat: legacy', phase: 'ready', created: at(4) },
+    { id: 'T1', title: 'Not ready', created: at(0) },
+  ];
+  const built = ({ pullOrder, events = [] } = {}) => buildBoard({ fromWaves: false, events, pullOrder, now: Date.parse(at(30)),
+    files: [{ slug: 'w', itemFile: { internal: true, items } }] });
+  const ids = (b) => b.items.filter((i) => i.kind === 'work').map((i) => i.id);
+  assert.deepEqual(ids(built()), ['T1', 'R1', 'R2', 'R3', 'R4'], 'oldest first: by creation, as before');
+  assert.deepEqual(ids(built({ pullOrder: 'oldest' })), ['T1', 'R1', 'R2', 'R3', 'R4']);
+  const newest = built({ pullOrder: 'newest' });
+  assert.deepEqual(ids(newest), ['R1', 'R2', 'R3', 'R4', 'T1'], 'ready cards on top, last readied first: a re-check keeps R3 at its first ready time, R4 with no record sorts by created');
+  assert.deepEqual(pullOf(newest.items).queue, ['w/R1', 'w/R2', 'w/R3', 'w/R4']);
+  const bump = { id: 'b1', ts: at(25), kind: 'card-bump', data: { key: 'w/R2' } };
+  assert.deepEqual(pullOf(built({ pullOrder: 'newest', events: [bump] }).items).queue[0], 'w/R2', 'a bump still goes first');
+});
+
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test('a staging card stays in Todo waiting on the orchestrator, and is neither pulled, an arrival nor a gap; ready cards are pulled on their state alone', () => {
   const at = (m) => `2026-11-07T10:${String(m).padStart(2, '0')}:00.000Z`;

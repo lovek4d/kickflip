@@ -53,3 +53,23 @@ test('the clock restarts on each ready: item set --phase ready records ready_at 
   assert.ok(Date.parse(it.ready_at) > Date.now() - 60000);
   assert.equal(it.ready_main, undefined);
 });
+
+// docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md
+test('a re-check keeps the first ready time: a restage stamps ready_first, a later ready keeps it, another phase drops it', async () => {
+  fileItems(readyOne({ plan: 't1.md', size: 'small' }));
+  write(site('audit', 'data', 't1.md'), '# Notes\n');
+  await restageStaleReady(dir(), 'bbb', at(READY_EXPIRES_MS));
+  assert.equal(item().ready_first, at(0).toISOString());
+  let r = await board('item', 'set', 'audit/T1', '--site', 'audit', '--phase', 'ready', '--text', 'Checked.');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual([item().ready_first, Date.parse(item().ready_at) > Date.now() - 60000], [at(0).toISOString(), true]);
+  r = await board('item', 'set', 'audit/T1', '--site', 'audit', '--phase', 'grilling');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(item().ready_first, undefined);
+});
+
+test('a card readied before the record backfills ready_first from its created time, not now', async () => {
+  fileItems(readyOne({ ready_at: undefined, ready_main: undefined, created: '2026-11-01T10:00:00.000Z' }));
+  await restageStaleReady(dir(), 'aaa', at(0));
+  assert.deepEqual([item().ready_first, item().ready_at], ['2026-11-01T10:00:00.000Z', at(0).toISOString()]);
+});

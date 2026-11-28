@@ -4,7 +4,7 @@
 // (docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md).
 // → {name, label, value: the choice on, choices: [{value, label, on}], description}
 
-const NAMES = { opus: 'Opus', auto: 'Auto', sonnet: 'Sonnet', on: 'On', off: 'Off', assigned: 'Assigned only', all: 'All' };
+const NAMES = { opus: 'Opus', auto: 'Auto', sonnet: 'Sonnet', on: 'On', off: 'Off', assigned: 'Assigned only', all: 'All', oldest: 'Oldest first', newest: 'Newest first' };
 
 // docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
 const BUILDERS = {
@@ -28,6 +28,14 @@ const view = (name, label, words, value) => ({
 export const buildersView = (value) => view('builders', 'Builders', BUILDERS, value);
 // value: hub/push.mjs readOrchestratorModel.
 export const orchestratorsView = (value) => view('orchestrators', 'Orchestrators', ORCHESTRATORS, value);
+
+// docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md
+const PULL_ORDER = {
+  oldest: 'Each board pulls its topmost Ready task first, the oldest by creation. Bumped tasks still go first.',
+  newest: 'Each board pulls the Ready task readied last first, and its Ready lane lists it on top. Bumped tasks still go first.',
+};
+// value: hub-settings.mjs readPullOrder.
+export const pullOrderView = (value) => view('pull_order', 'Pull order', PULL_ORDER, value);
 
 // The Auto settings by board.json key, in the section's order: each one's label and words for on and off.
 const AUTO = {

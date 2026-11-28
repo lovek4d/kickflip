@@ -14,13 +14,16 @@
   // (docs/adr/2026-11-24-2330-lanes-list-oldest-first-by-arrival.md).
   // Present times first, the earliest on top.
   const earliest = (x, y) => (x ? 0 : 1) - (y ? 0 : 1) || String(x || '').localeCompare(String(y || ''));
+  // Under the hub's Newest first, a ready Todo card carries pullAt, when it was first readied, and sits above the rest of
+  // Todo, the last readied on top (docs/adr/2026-11-28-0300-a-hub-setting-orders-the-pull.md).
+  const readiedLast = (a, b) => (a.pullAt ? 0 : 1) - (b.pullAt ? 0 : 1) || String(b.pullAt || '').localeCompare(String(a.pullAt || ''));
   function laneOrder(a, b) {
     const at = (i) => String(i.sortAt || '');
     const oldestFirst = a.lane !== 'done';
     const timeless = (i) => (at(i) ? 0 : 1);
     const age = oldestFirst ? timeless(a) - timeless(b) || at(a).localeCompare(at(b)) : at(b).localeCompare(at(a));
     const added = oldestFirst ? a.order - b.order : b.order - a.order;
-    return LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || earliest(a.bumpedAt, b.bumpedAt) || age || added || a.key.localeCompare(b.key);
+    return LANE_ORDER[a.lane] - LANE_ORDER[b.lane] || earliest(a.bumpedAt, b.bumpedAt) || readiedLast(a, b) || age || added || a.key.localeCompare(b.key);
   }
   Object.assign(globalThis.BoardUI ||= {}, { laneOrder });
 })();

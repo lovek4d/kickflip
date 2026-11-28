@@ -127,6 +127,7 @@
     + countControl('Maximum tasks in progress', capacity.tasksInProgress, '/_hub/settings/tasks-in-progress', 'Hub-wide. Each counts from its build starting until it lands. Boards take turns, one card each.')
     + countControl('Maximum parallel serves', capacity.serves, '/_hub/settings/serves', 'Hub-wide. Each open task worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another. Boards take turns, one card each.')
     + countControl('Maximum parallel land tests', capacity.landTests, '/_hub/settings/land-tests', 'Hub-wide. Lands run the tests their change affects. Boards take turns, one card each.')
+    + `<div class="block">${modelControl(capacity.pullOrder, '/_hub/settings/pull-order')}</div>`
     + '</div></section>';
 
   // data is the usage reading; claude, when given, draws Claude's block even without a reading; codex, when given, draws Codex's block even without a reading: the Codex share control
