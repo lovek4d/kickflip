@@ -451,10 +451,10 @@
 
     // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
     // Overrides: each Auto setting drawn as Hub settings' Board defaults draws it, with Hub default (its value) first,
-    // then On and Off, which override it for this board. A tap saves at once through POST api/settings, which writes
-    // board.json itself, so it takes effect with no session awake
+    // then On and Off, or a setting's own choices, which override it for this board. A tap saves at once through POST
+    // api/settings, which writes board.json itself, so it takes effect with no session awake
     // (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md); Hub default posts null. Only a tap
-    // that turns Auto-merge on asks first. The head counts the overrides.
+    // that turns Auto-merge on, or turns Pull in issues on from Off, asks first. The head counts the overrides.
     const OVERRIDES = [
       { key: 'auto_build', label: 'Auto serve', sub: () => BoardUI.tryWords(buildKind).autoSub, saved: (on) => BoardUI.tryWords(buildKind).saved(on) },
       { key: 'auto_review', label: 'Auto review', sub: () => 'Claude reviews teammates’ PRs that touch this board’s work. May use a lot of usage.',
@@ -467,21 +467,30 @@
       // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md
       { key: 'stage_splits', label: 'Automatically stage split tickets', sub: () => 'When the orchestrator splits a task you approved, each split lands in Todo as staged, skipping New.',
         saved: (on) => (on ? 'Saved. Splits of a task you approved land in Todo as staged.' : 'Saved. Splits of a task you approved come in through New.') },
+      // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
+      { key: 'pull_issues', label: 'Pull in issues', choices: ['off', 'assigned', 'all'], sub: () => 'The hub files each open issue on this board’s GitHub repo that no task names as a task to discuss. Needs GitHub issues as the ticket source.',
+        saved: (value) => ({ off: 'Saved. Issues come onto this board only when you add them.', assigned: 'Saved. Open issues assigned to you come in as tasks to discuss.',
+          all: 'Saved. Each open issue no task names comes in as a task to discuss.' })[value] },
     ];
+    const CHOICE_WORDS = { on: 'On', off: 'Off', assigned: 'Assigned only', all: 'All' };
+    const choicesOf = (row) => row.choices || ['on', 'off'];
+    // A stored value as its choice: on or off for a switch, the word itself for a setting with choices.
+    const wordOf = (value) => (typeof value === 'boolean' ? (value ? 'on' : 'off') : value);
+    const valueOf = (row, word) => (row.choices ? word : word === 'on');
     // auto: {settings, overrides, defaults} from api/settings, null until it answers.
     let auto = null;
-    const choiceOf = (key) => (key in auto.overrides ? (auto.overrides[key] ? 'on' : 'off') : 'default');
+    const choiceOf = (key) => (key in auto.overrides ? wordOf(auto.overrides[key]) : 'default');
     function paintOverrides() {
       if (!auto) return;
       const rows = $('#overrideRows');
       if (!rows.querySelector('[data-override]')) {
-        rows.innerHTML = OVERRIDES.map(({ key, label }) => `<div class="model-control" data-override-row="${key}"><span class="model-label">${esc(label)}</span>`
-          + `<div class="model-seg" role="group" aria-label="${esc(label)}">${['default', 'on', 'off'].map((v) => `<button type="button" data-override="${key}" value="${v}"></button>`).join('')}</div>`
-          + `<p class="u-share-desc" data-override-sub="${key}"></p><p class="muted small" id="${key}Status" role="status"></p></div>`).join('');
+        rows.innerHTML = OVERRIDES.map((row) => `<div class="model-control" data-override-row="${row.key}"><span class="model-label">${esc(row.label)}</span>`
+          + `<div class="model-seg" role="group" aria-label="${esc(row.label)}">${['default', ...choicesOf(row)].map((v) => `<button type="button" data-override="${row.key}" value="${v}"></button>`).join('')}</div>`
+          + `<p class="u-share-desc" data-override-sub="${row.key}"></p><p class="muted small" id="${row.key}Status" role="status"></p></div>`).join('');
       }
       for (const { key, sub } of OVERRIDES) {
         for (const button of rows.querySelectorAll(`[data-override="${key}"]`)) {
-          button.textContent = button.value === 'default' ? `Hub default (${auto.defaults[key] ? 'On' : 'Off'})` : button.value === 'on' ? 'On' : 'Off';
+          button.textContent = button.value === 'default' ? `Hub default (${CHOICE_WORDS[wordOf(auto.defaults[key])]})` : CHOICE_WORDS[button.value];
           button.setAttribute('aria-pressed', String(button.value === choiceOf(key)));
         }
         rows.querySelector(`[data-override-sub="${key}"]`).textContent = sub();
@@ -489,22 +498,46 @@
       const n = Object.keys(auto.overrides).length;
       $('#overridesCount').textContent = ` · ${n || 'none'}`;
     }
+    // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md: turning Pull in issues on from Off
+    // counts the open issues it would bring in (GET api/issue-backlog) and asks whether to take them all or only new
+    // ones. → all, now, none for a board that can't pull (its tickets aren't GitHub issues), or null to save nothing.
+    async function backlogAsk(mode, status) {
+      status.textContent = 'Counting open issues…';
+      const r = await fetch(site.url(`api/issue-backlog?mode=${mode}`));
+      const out = await r.json().catch(() => ({}));
+      status.textContent = '';
+      if (!r.ok) throw new Error(out.error || 'Could not count the open issues. Is the host awake?');
+      if (!out.backlog) return 'none';
+      const { count, more } = out.backlog;
+      if (!count) return 'all';
+      const n = `${count}${more ? '+' : ''}`;
+      return BoardDialogs.choose(`Pull in ${n} open issue${count === 1 && !more ? '' : 's'}?`,
+        `${n} open issue${count === 1 && !more ? '' : 's'} on this board’s repo ${count === 1 && !more ? 'is' : 'are'} on no task${mode === 'assigned' ? ' and assigned to you' : ''}. Pull them all in now, or only issues opened from now on?`,
+        [{ value: 'all', label: `Pull all ${n}` }, { value: 'now', label: 'Only new ones' }]);
+    }
     B.on($('#overrideRows'), 'click', async (e) => {
       const button = e.target.closest?.('[data-override]');
       if (!button || !auto || button.disabled) return;
       const key = button.dataset.override, want = button.value;
       if (want === choiceOf(key)) return;
-      const on = want === 'default' ? auto.defaults[key] : want === 'on';
+      const row = OVERRIDES.find((o) => o.key === key);
+      const on = want === 'default' ? auto.defaults[key] : valueOf(row, want);
       const status = $(`#${key}Status`);
       const ask = opensPRs() ? 'Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'
         : 'Turn on auto-merge? Each verified task lands on the base branch without asking you.';
       if (key === 'auto_merge' && on && !auto.settings.auto_merge && !(await BoardDialogs.confirm(ask))) return;
       if (!B.alive()) return;
+      const change = { [key]: want === 'default' ? null : on };
       try {
-        auto = await postSettings(button, { [key]: want === 'default' ? null : on }, { group: $('#overrideRows').querySelectorAll(`[data-override="${key}"]`) });
+        if (key === 'pull_issues' && auto.settings.pull_issues === 'off' && on !== 'off') {
+          const from = await backlogAsk(on, status);
+          if (!from || !B.alive()) return;
+          if (from !== 'none') change.pull_issues_since = from === 'now' ? 'now' : null;
+        }
+        auto = await postSettings(button, change, { group: $('#overrideRows').querySelectorAll(`[data-override="${key}"]`) });
         if (!B.alive()) return;
         paintOverrides();
-        status.textContent = OVERRIDES.find((o) => o.key === key).saved(auto.settings[key]);
+        status.textContent = row.saved(auto.settings[key]);
       } catch (err) {
         if (B.alive()) status.textContent = err.message || 'Could not save. Is the host awake?';
       }

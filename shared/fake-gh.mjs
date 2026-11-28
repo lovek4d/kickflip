@@ -24,6 +24,9 @@ export const SQUASH_SOURCE = { title: 'feat: the work', body: 'Checked it.', com
 export const writeReady = (dir, n, value) => write(dir, 'ready', n, value);
 // [{number, headRefName, isCrossRepository}]: the open PRs the GraphQL query lists for repo (owner/name).
 export const writeOpen = (dir, repo, value) => write(dir, 'open', repo, value);
+// [{number, title, url, createdAt, author: {login}, assignees: {nodes: [{login}]}}]: the open issues the GraphQL query lists
+// for repo (owner/name), newest first.
+export const writeIssues = (dir, repo, value) => write(dir, 'issues', repo, value);
 export const writeUser = (dir, value) => write(dir, '', 'user', value);
 // {login}: the GitHub user gh api users/<login> answers with; no file means no such user.
 export const writeGithubUser = (dir, login, value = { login }) => write(dir, 'github-users', login, value);
@@ -140,6 +143,10 @@ if (args.length === 4 && args[0] === 'api' && args[1] === 'graphql' && args[2] =
   const errors = [];
   for (const [, alias, owner, name] of args[3].matchAll(/(open\\d+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{ pullRequests\\(/g)) {
     data[alias] = { pullRequests: { nodes: read(path.join(dir, 'open', owner + '__' + name + '.json'), []) } };
+  }
+  for (const [, alias, owner, name] of args[3].matchAll(/(issues\\d+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{ issues\\(/g)) {
+    const nodes = read(path.join(dir, 'issues', owner + '__' + name + '.json'), []);
+    data[alias] = { issues: { totalCount: nodes.length, nodes: nodes.slice(0, 100) } };
   }
   for (const [, alias, owner, name, n] of args[3].matchAll(/(\\w+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{ pullRequest\\(number: (\\d+)\\)/g)) {
     const repo = owner + '/' + name;

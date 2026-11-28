@@ -612,13 +612,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   schedule set <id> [--cadence <c>] [--text <t>]         rewords it or changes its cadence, which counts from now
   schedule rm <id>                                       refuses an id the board doesn't have
   settings                                               the board's settings as JSON; auto-merge, auto-build,
-                                                         auto-review, idle-notification and stage-splits are the
-                                                         board's override, else Hub settings' Board default; other
+                                                         auto-review, idle-notification, stage-splits and
+                                                         pull-issues are the board's override, else Hub settings' Board default; other
                                                          flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
                                                          "auto_review": false, "idle_notification": false,
-                                                         "stage_splits": true,
+                                                         "stage_splits": true, "pull_issues": "off",
                                                          "skip_draft": false, "prs": true,
                                                          "github_login": "owner"}
   description                                            the board's description as JSON, from the hub's manifest,
@@ -636,13 +636,21 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          most 240 characters, as from triage. Only on the owner's
                                                          Use this on the proposal's question, or their note's words
   settings set <auto setting> default                   drops the board's override of auto-merge, auto-build,
-                                                         auto-review, idle-notification or stage-splits, so it
+                                                         auto-review, idle-notification, stage-splits or
+                                                         pull-issues, so it
                                                          takes Hub settings' Board default; on or off sets an
                                                          override
   settings set stage-splits on|off                       Automatically stage split tickets, on by default: on, a
                                                          split of a staged task files into Todo as staging
                                                          (item add --title … --parent --split --phase staging);
                                                          off, it comes in as an ask (item add --ask --split)
+  settings set pull-issues off|assigned|all             Pull in issues, off by default: assigned or all, the
+                                                         hub's GitHub poll files each open issue (assigned to the
+                                                         owner, or any) on the board's repo that no task names
+                                                         as a discussing GH-<n> task, with an issue-pulled event.
+                                                         Only a board whose tickets are GitHub issues pulls
+  settings set pull-issues-since now|all                 now: Pull in issues skips the issues opened before now;
+                                                         all: it takes every open issue
   settings set auto-merge on|off                        on: the hub's tick merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off: the task
                                                          shows the owner a Merge button, and the board server merges

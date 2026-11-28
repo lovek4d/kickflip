@@ -2002,6 +2002,36 @@ export const setItem = (site, key, changes, options) => (changes.ticket !== unde
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
+// docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
+// The tickets a task on the board names, in any lane, its Done archive included: each stored ticket, and #n for a
+// GH-<n> id. → a Set
+export async function namedTickets(site) {
+  const named = new Set();
+  const add = (item) => {
+    if (item?.ticket) named.add(String(item.ticket));
+    const n = /^GH-([1-9]\d*)$/.exec(String(item?.id ?? ''))?.[1];
+    if (n) named.add(`#${n}`);
+  };
+  for (const entry of await itemSources(site)) for (const item of (await readJSON(entry.file, {})).items || []) add(item);
+  for (const entry of await readArchive(site)) add(entry.item);
+  return named;
+}
+// The hub's issue pull (hub/issue-pull.mjs): under the tickets lock, so an issue the board is creating at ready is named
+// by its task before it is read, files each issue pick(named) returns, [{number, title, url, author}], as a discussing
+// GH-<n> task in item file slug, its ticket linked. → {filed: [{key, issue}], failed: [message]}
+export const fileIssues = (site, slug, pick) => ticketWrite(site, async () => {
+  const filed = [], failed = [];
+  for (const issue of pick(await namedTickets(site))) {
+    const opened = [issue.author?.login && `by ${issue.author.login}`, issue.createdAt && `on ${issue.createdAt.slice(0, 10)}`].filter(Boolean).join(' ');
+    try {
+      const { key } = await createItem(site, `${slug}/GH-${issue.number}`, { ticket: `#${issue.number}`, title: issue.title, phase: 'discussing',
+        notes: `Pulled in from GitHub issue #${issue.number}${opened ? `, opened ${opened}` : ''}: ${issue.url}` });
+      filed.push({ key, issue });
+    } catch (e) { failed.push(`could not file issue #${issue.number} (${e.message})`); }
+  }
+  return { filed, failed };
+});
+
 // Card added, just written, blocks each of blocked (ids in its item file, or keys), which gains it as a dep, and waits
 // on each of deps: on a site, an Unblocks and a Blocked by line, one in each thread, for each.
 export async function blockLines(site, added, blocked, deps, options) {

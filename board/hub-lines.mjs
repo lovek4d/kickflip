@@ -103,6 +103,9 @@ export const HUB_LINES = {
   'ticket-moved': { tone: 'blue', mark: MOVE, text: ({ ticket, state, assigned }) => fit(assigned ? `Assigned ${ticket} to you and moved it to ` : `Moved ${ticket} to `, state, '.'), longest: { ticket: TICKET, assigned: true } },
   'ticket-left': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Left ${ticket} as it is: assigned to someone else.`, longest: { ticket: TICKET } },
   'ticket-commented': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Commented on ${ticket}.`, longest: { ticket: TICKET } },
+  // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md: the first line of a task the hub's
+  // poll filed from an open issue (hub/issue-pull.mjs).
+  'issue-pulled': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Pulled in from GitHub issue ${ticket}.`, longest: { ticket: TICKET } },
   'ticket-closed': { tone: 'green', mark: DONE, text: ({ ticket, state }) => (state ? fit(`Closed ${ticket}: moved to `, state, '.') : `Closed ${ticket}.`), longest: { ticket: TICKET } },
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
   // card, holding its question ids; orange while any of them is open (domain.mjs threadOf), grey once none is.

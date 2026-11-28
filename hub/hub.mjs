@@ -102,8 +102,13 @@
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
 //   /_hub/settings/claude-model POST value=opus|auto|sonnet, Builders → /_hub/api/hub's JSON, or 400 {error}
-//   /_hub/settings/auto-build|auto-review|auto-merge|idle-notification POST value=on|off, a Board default
+//   /_hub/settings/auto-build|auto-review|auto-merge|idle-notification|stage-splits POST value=on|off, a Board default
 //                     (board/settings.mjs saveBoardDefault) → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/pull-issues POST value=off|assigned|all [from=now|all], Pull in issues' Board default, from the backlog
+//                     ask's answer when it turned on (docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md)
+//                     → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/api/issue-backlog GET ?mode=assigned|all → {backlog: {count, more, boards} | null}, the open issues the boards
+//                     taking Pull in issues' default would file (issue-pull.mjs defaultBacklog), or 502 {error}
 //   /_hub/settings/orchestrator-model POST value=opus|sonnet, Orchestrators (sessions.mjs changeOrchestratorModel)
 //                     → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/tasks-in-progress POST value=1..99, Maximum tasks in progress (hub-settings.mjs setTasksInProgress)
@@ -299,6 +304,7 @@ import { BoardError } from '../board/checks.mjs';
 import { tailnetPeers, sendToPeer, retryOutbox, peerBoards } from './peers.mjs';
 import { draftOf, readDrafts, saveDraft } from '../board/drafts.mjs';
 import { fallBackFromLinear, migrateBoardDefaults, saveBoardDefault } from '../board/settings.mjs';
+import { defaultBacklog } from './issue-pull.mjs';
 import { runMigrations } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { clientIdentity, hubGate } from '../board/on-host.mjs';
@@ -321,14 +327,17 @@ const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 // The version of the code this process started with; new files on disk run only after a restart.
 const VERSION = JSON.parse(fs.readFileSync(path.join(HUB_DIR, '..', 'package.json'), 'utf8')).version;
 // The Board defaults section's Builders, Orchestrators and Auto settings, and the Capacity section's numbers, each saving
-// one value posted as a form.
+// one value posted as a form, each handler taking the posted form.
 const VALUE_SETTINGS = {
-  '/_hub/settings/claude-model': setClaudeModel,
-  '/_hub/settings/orchestrator-model': changeOrchestratorModel,
-  ...Object.fromEntries(BOARD_DEFAULT_KEYS.map((key) => [`/_hub/settings/${key.replace(/_/g, '-')}`, async (value) => { for (const line of await saveBoardDefault(key, value)) stampedLog(`board defaults: ${line}`); }])),
-  '/_hub/settings/tasks-in-progress': setTasksInProgress,
-  '/_hub/settings/serves': setServes,
-  '/_hub/settings/land-tests': setLandTests,
+  '/_hub/settings/claude-model': (form) => setClaudeModel(form.get('value')),
+  '/_hub/settings/orchestrator-model': (form) => changeOrchestratorModel(form.get('value')),
+  ...Object.fromEntries(BOARD_DEFAULT_KEYS.map((key) => [`/_hub/settings/${key.replace(/_/g, '-')}`, async (form) => {
+    const from = key === 'pull_issues' && form.get('from') ? { from: form.get('from') } : {};
+    for (const line of await saveBoardDefault(key, form.get('value'), from)) stampedLog(`board defaults: ${line}`);
+  }])),
+  '/_hub/settings/tasks-in-progress': (form) => setTasksInProgress(form.get('value')),
+  '/_hub/settings/serves': (form) => setServes(form.get('value')),
+  '/_hub/settings/land-tests': (form) => setLandTests(form.get('value')),
 };
 
 const stampedLog = (...a) => console.log(new Date().toISOString(), ...a);
@@ -1653,7 +1662,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (Object.hasOwn(VALUE_SETTINGS, p) && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { await VALUE_SETTINGS[p](f.get('value')); } catch (e) {
+      try { await VALUE_SETTINGS[p](f); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }
@@ -1699,6 +1708,11 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       try { await (signature ? setSignOff(f.get('emoji') || '') : setPREmoji(f.get('state'), f.get('emoji') || '')); } catch (e) { return sendJSON(400, { error: e.message }); }
       log(`slack: ${signature ? 'sign-off' : `${f.get('state')} PR`} emoji ${f.get('emoji') ? `set to ${f.get('emoji')}` : 'back to its default'}`);
       return sendJSON(200, await slackEmojiData());
+    }
+    if (p === '/_hub/api/issue-backlog' && req.method === 'GET') {
+      const mode = url.searchParams.get('mode');
+      if (!['assigned', 'all'].includes(mode)) return sendJSON(400, { error: 'mode takes assigned or all' });
+      try { return sendJSON(200, { backlog: await defaultBacklog(mode) }); } catch (e) { return sendJSON(502, { error: `Couldn’t count the open issues: ${e.message}` }); }
     }
     if (p === '/_hub/api/linear' && req.method === 'GET') {
       const status = linearStatus();

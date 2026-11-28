@@ -102,23 +102,31 @@ export async function setServes(value, home = os.homedir()) {
 }
 
 // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
-// Hub settings' Board defaults: Auto serve, Auto review, Auto-merge, Idle notification and Automatically stage split
-// tickets, settings.json's boardDefaults keyed as board.json keys them. A board takes each unless its board.json sets
-// that key (board/settings.mjs settingsOf). A key unset here reads its built-in: stage_splits on
-// (docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md), the rest off.
-export const BOARD_DEFAULT_BUILT_INS = { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true };
+// Hub settings' Board defaults: Auto serve, Auto review, Auto-merge, Idle notification, Automatically stage split
+// tickets and Pull in issues, settings.json's boardDefaults keyed as board.json keys them. A board takes each unless its
+// board.json sets that key (board/settings.mjs settingsOf). A key unset here reads its built-in: stage_splits on
+// (docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md), pull_issues off
+// (docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md), the rest off.
+export const BOARD_DEFAULT_BUILT_INS = { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true, pull_issues: 'off' };
 export const BOARD_DEFAULT_KEYS = Object.keys(BOARD_DEFAULT_BUILT_INS);
+// The Board defaults that take a word rather than on or off: each one's words.
+export const BOARD_DEFAULT_CHOICES = { pull_issues: ['off', 'assigned', 'all'] };
+// Whether value is one key can hold.
+export const boardDefaultValue = (key, value) => (BOARD_DEFAULT_CHOICES[key] ? BOARD_DEFAULT_CHOICES[key].includes(value) : typeof value === 'boolean');
 export const readBoardDefaults = (home = os.homedir()) => {
   const stored = read(home).boardDefaults;
-  return Object.fromEntries(BOARD_DEFAULT_KEYS.map((k) => [k, typeof stored?.[k] === 'boolean' ? stored[k] : BOARD_DEFAULT_BUILT_INS[k]]));
+  return Object.fromEntries(BOARD_DEFAULT_KEYS.map((k) => [k, boardDefaultValue(k, stored?.[k]) ? stored[k] : BOARD_DEFAULT_BUILT_INS[k]]));
 };
-// value: on, off, or a boolean. Throws {status: 400} for another key or value.
+// value: on, off, or a boolean; one of its words for a key in BOARD_DEFAULT_CHOICES. Throws {status: 400} for another
+// key or value. → the value saved
 export async function setBoardDefault(key, value, home = os.homedir()) {
   if (!BOARD_DEFAULT_KEYS.includes(key)) throw Object.assign(new Error(`no board default "${key}"`), { status: 400 });
-  const on = value === true || value === 'on' ? true : value === false || value === 'off' ? false : null;
-  if (on === null) throw Object.assign(new Error(`${key.replace(/_/g, '-')} takes on or off`), { status: 400 });
-  await update((file) => ({ ...file, boardDefaults: { ...file.boardDefaults, [key]: on } }), home);
-  return on;
+  const words = BOARD_DEFAULT_CHOICES[key];
+  const saved = words ? (words.includes(value) ? value : null)
+    : value === true || value === 'on' ? true : value === false || value === 'off' ? false : null;
+  if (saved === null) throw Object.assign(new Error(`${key.replace(/_/g, '-')} takes ${words ? `${words.slice(0, -1).join(', ')} or ${words.at(-1)}` : 'on or off'}`), { status: 400 });
+  await update((file) => ({ ...file, boardDefaults: { ...file.boardDefaults, [key]: saved } }), home);
+  return saved;
 }
 
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md),

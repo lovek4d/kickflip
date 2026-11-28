@@ -291,6 +291,10 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
    area's bottom padding, so the shadow covers what scrolls through that padding. */
 .sheet-actions { position: sticky; bottom: 0; z-index: 1; padding-top: 8px; background: var(--panel); box-shadow: 0 40px 0 var(--panel); }
 .sheet.kb form { padding-bottom: 10px; }
+/* BoardDialogs.choose: a question and a row of answers, its first the default. */
+.choose-sheet { padding: 14px 16px; }
+.choose-sheet h2 { font-size: 15px; margin: 0 0 6px; }
+.choose-sheet .sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .sheet-head h2 { font-size: 15px; margin: 0; }
 .sheet textarea { resize: none; min-height: 96px; }

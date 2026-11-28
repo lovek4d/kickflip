@@ -507,16 +507,18 @@ test("the board's Settings and Notes views, mounted then unmounted, leave no lis
 // dom: a mini-dom.mjs root that parses what the view draws, for a test that reads inside it.
 // overrides and defaults are the board's Auto overrides and the hub's Board defaults, off unless given, which the
 // server's settings answer carries, its settings taking the override else the default.
-const AUTO_KEYS = ['auto_build', 'auto_review', 'auto_merge', 'idle_notification', 'stage_splits'];
+const AUTO_KEYS = ['auto_build', 'auto_review', 'auto_merge', 'idle_notification', 'stage_splits', 'pull_issues'];
 function settingsPage({ settings = {}, overrides = {}, defaults = {}, board = {}, routes = {}, ctx = {}, dom = false } = {}) {
   const page = fakePage(memoryStorage().localStorage);
   const Element = dom && miniDom(page.Target, page.win.document).Element;
   const root = dom ? page.win.document.body.appendChild(new Element('div')) : new page.El();
-  const s = { page, root, posts: [], confirms: [], confirmAnswer: true, refuse: '', saved: { ...settings }, overrides: { ...overrides }, defaults: Object.fromEntries(AUTO_KEYS.map((k) => [k, defaults[k] === true])), rules: [], rulesReads: 0,
+  const s = { page, root, posts: [], confirms: [], confirmAnswer: true, chosen: [], chooseAnswer: 'now', refuse: '', saved: { ...settings }, overrides: { ...overrides },
+    defaults: Object.fromEntries(AUTO_KEYS.map((k) => [k, k === 'pull_issues' ? defaults[k] ?? 'off' : defaults[k] === true])), rules: [], rulesReads: 0,
     descriptionPosts: [], description: { description: 'Sells shoes', source: 'new-board', at: '2026-11-12T12:00:00' } };
   const site = page.win.ClaudeSite.site;
   page.win.ClaudeSite.site = (r) => ({ ...site(r), events: async (opts) => { if (opts?.kind !== 'rules') return []; s.rulesReads++; return structuredClone(s.rules); } });
   page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return s.confirmAnswer; };
+  page.win.BoardDialogs.choose = async (...args) => { s.chosen.push(args); return s.chooseAnswer; };
   page.win.fetch = async (url, opts = {}) => {
     let body = url.endsWith('/api/board') ? board : Object.entries(routes).find(([end]) => url.endsWith(end))?.[1] ?? {};
     if (url.endsWith('/api/description')) {
@@ -532,6 +534,8 @@ function settingsPage({ settings = {}, overrides = {}, defaults = {}, board = {}
         s.posts.push(JSON.parse(opts.body));
         if (s.refuse) return { ok: false, status: 400, text: async () => JSON.stringify({ error: s.refuse }), json: async () => ({ error: s.refuse }) };
         for (const [k, v] of Object.entries(JSON.parse(opts.body))) {
+          // The board keeps Pull in issues' since mark, which reads back as no setting.
+          if (k === 'pull_issues_since') continue;
           if (!AUTO_KEYS.includes(k)) s.saved = { ...s.saved, [k]: v };
           else if (v === null) delete s.overrides[k];
           else s.overrides[k] = v;
@@ -580,7 +584,7 @@ test("Board Settings' collapsed Overrides group counts the board's overrides in 
   assert.equal($('#overrides').tagName, 'DETAILS');
   assert.equal($('#overrides').open, false, 'collapsed');
   assert.equal($('#overrides summary').textContent, 'Overrides · 1');
-  assert.deepEqual(s.root.querySelectorAll('#overrideRows .model-label').map((l) => l.textContent), ['Auto serve', 'Auto review', 'Auto-merge', 'Idle notification', 'Automatically stage split tickets']);
+  assert.deepEqual(s.root.querySelectorAll('#overrideRows .model-label').map((l) => l.textContent), ['Auto serve', 'Auto review', 'Auto-merge', 'Idle notification', 'Automatically stage split tickets', 'Pull in issues']);
   assert.deepEqual(row('auto_review'), [['Hub default (On)', 'true'], ['On', 'false'], ['Off', 'false']]);
   assert.deepEqual(row('auto_merge'), [['Hub default (Off)', 'false'], ['On', 'true'], ['Off', 'false']]);
   assert.match(s.root.querySelector('[data-override-row="auto_review"]').textContent, /May use a lot of usage\./);
@@ -622,6 +626,29 @@ test("Board Settings' Overrides draws Automatically stage split tickets with the
   await tick(); await tick();
   assert.deepEqual([s.posts.at(-1), s.confirms, row()[2][1]], [{ stage_splits: false }, [], 'true']);
   assert.deepEqual([$('#overrides summary').textContent, $('#stage_splitsStatus').textContent], ['Overrides · 1', 'Saved. Splits of a task you approved come in through New.']);
+  s.view.unmount();
+});
+
+// docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
+test("Board Settings' Pull in issues takes Hub default, Off, Assigned only or All; turning it on from Off counts the backlog and asks all or only new", async () => {
+  const s = settingsPage({ dom: true, routes: { 'api/issue-backlog?mode=all': { backlog: { count: 4, more: true } }, 'api/issue-backlog?mode=assigned': { backlog: { count: 1, more: false } } } });
+  await s.mount();
+  const $ = (sel) => s.root.querySelector(sel);
+  const row = () => s.root.querySelectorAll('[data-override="pull_issues"]').map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const tap = async (value) => { s.page.fire($('#overrideRows'), 'click', { target: $(`[data-override="pull_issues"][value="${value}"]`) }); for (let i = 0; i < 4; i++) await tick(); };
+  assert.deepEqual(row(), [['Hub default (Off)', 'true'], ['Off', 'false'], ['Assigned only', 'false'], ['All', 'false']]);
+  s.chooseAnswer = null;
+  await tap('all');
+  assert.deepEqual([s.posts.length, JSON.parse(JSON.stringify(s.chosen.map(([title, , choices]) => [title, choices.map((c) => c.value)])))], [0, [['Pull in 4+ open issues?', ['all', 'now']]]], 'Cancel saves nothing');
+  s.chooseAnswer = 'now';
+  await tap('all');
+  assert.deepEqual([s.posts.at(-1), row()[3][1], $('#pull_issuesStatus').textContent], [{ pull_issues: 'all', pull_issues_since: 'now' }, 'true', 'Saved. Each open issue no task names comes in as a task to discuss.']);
+  await tap('assigned');
+  assert.deepEqual([s.posts.at(-1), s.chosen.length], [{ pull_issues: 'assigned' }, 2], 'already on, it asks nothing');
+  await tap('off');
+  s.chooseAnswer = 'all';
+  await tap('assigned');
+  assert.deepEqual([s.posts.at(-1), s.chosen.at(-1)[0]], [{ pull_issues: 'assigned', pull_issues_since: null }, 'Pull in 1 open issue?']);
   s.view.unmount();
 });
 

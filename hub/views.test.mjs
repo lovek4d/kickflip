@@ -969,8 +969,9 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5, serves: 10, boardDefaults: { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true } };
-  const AUTO = { '/auto-build': 'auto_build', '/auto-review': 'auto_review', '/auto-merge': 'auto_merge', '/idle-notification': 'idle_notification', '/stage-splits': 'stage_splits' };
+  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5, serves: 10, boardDefaults: { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true, pull_issues: 'off' } };
+  const AUTO = { '/auto-build': 'auto_build', '/auto-review': 'auto_review', '/auto-merge': 'auto_merge', '/idle-notification': 'idle_notification', '/stage-splits': 'stage_splits', '/pull-issues': 'pull_issues' };
+  const chosen = [];
   const hub = (claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, ...saved,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
@@ -980,10 +981,12 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
+    BoardDialogs: { choose: async (...args) => { chosen.push(args); return 'now'; } },
     fetch: async (url, opts) => {
+      if (url.startsWith('/_hub/api/issue-backlog')) return { ok: true, json: async () => ({ backlog: { count: 3, more: false, boards: ['shop'] } }) };
       posts.push({ url, opts });
       const auto = Object.keys(AUTO).find((tail) => url.endsWith(tail));
-      if (!refused && auto) saved.boardDefaults = { ...saved.boardDefaults, [AUTO[auto]]: opts.body.get('value') === 'on' };
+      if (!refused && auto) saved.boardDefaults = { ...saved.boardDefaults, [AUTO[auto]]: auto === '/pull-issues' ? opts.body.get('value') : opts.body.get('value') === 'on' };
       else if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : url.endsWith('/tasks-in-progress') ? { tasksInProgress: Number(opts.body.get('value')) } : url.endsWith('/serves') ? { serves: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
       return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub() };
     },
@@ -1000,8 +1003,9 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
   const submit = (value, name = 'builders') => {
     const form = control(name);
     const button = form.querySelector(`button[value="${value}"]`);
-    return listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
-      submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
+    // Every submit listener, as the page runs them: HubKit.forms, and the Pull in issues ask, which takes that form while it is Off.
+    const e = { target: form, submitter: { name: button.getAttribute('name'), value: button.value }, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; } };
+    return Promise.all(listeners.filter((l) => l.target === root && l.type === 'submit').map((l) => l.fn(e)));
   };
   const HELP = {
     opus: 'Always Opus. Auto would give small tasks to Sonnet.',
@@ -1015,7 +1019,7 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
   assert.equal(claude().querySelectorAll('.model-label').length, 0, 'Usage keeps no model control');
   assert.equal(root.querySelector('section.usage').nextSibling, defaults());
   assert.equal(defaults().querySelector('h2').textContent, 'Board defaults');
-  assert.deepEqual(defaults().querySelectorAll('.model-label').map((el) => el.textContent), ['Builders', 'Orchestrators', 'Auto serve', 'Auto review', 'Auto-merge', 'Idle notification', 'Automatically stage split tickets']);
+  assert.deepEqual(defaults().querySelectorAll('.model-label').map((el) => el.textContent), ['Builders', 'Orchestrators', 'Auto serve', 'Auto review', 'Auto-merge', 'Idle notification', 'Automatically stage split tickets', 'Pull in issues']);
   assert.deepEqual([control('builders').getAttribute('aria-label'), control('builders').getAttribute('action')], ['Builders', '/_hub/settings/claude-model']);
   assert.deepEqual([control('orchestrators').getAttribute('aria-label'), control('orchestrators').getAttribute('action')], ['Orchestrators', '/_hub/settings/orchestrator-model']);
   assert.deepEqual(control('builders').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
@@ -1046,6 +1050,16 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
   await submit('off', 'stage_splits');
   assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString(), selected('stage_splits'), desc('stage_splits')],
     ['/_hub/settings/stage-splits', 'value=off', 'off', 'Each split of a task you approved comes in as an ask through New, which the orchestrator sorts.']);
+  // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md: Off, Assigned only or All; turning it
+  // on from Off asks with the count, and posts the answer as from; a change between on words asks nothing.
+  assert.deepEqual(control('pull_issues').querySelectorAll('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')]), [['Off', 'true'], ['Assigned only', 'false'], ['All', 'false']]);
+  await submit('all', 'pull_issues');
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString(), selected('pull_issues')], ['/_hub/settings/pull-issues', 'value=all&from=now', 'all']);
+  assert.deepEqual(JSON.parse(JSON.stringify(chosen.map(([title, , choices]) => [title, choices.map((c) => c.label)]))), [['Pull in 3 open issues?', ['Pull all 3', 'Only new ones']]]);
+  assert.match(chosen[0][1], /on \/shop are on no task/);
+  assert.equal(posts.filter((p) => p.url === '/_hub/settings/pull-issues').length, 1, 'the form itself posts nothing');
+  await submit('assigned', 'pull_issues');
+  assert.deepEqual([posts.at(-1).opts.body.toString(), chosen.length, desc('pull_issues')], ['value=assigned', 1, 'The hub files each open issue assigned to you on a board’s GitHub repo that no task names, as a task to discuss.']);
   // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: the hub's numbers step from the Capacity
   // section right below Board defaults.
   assert.equal(defaults().nextSibling, root.querySelector('section.capacity'));

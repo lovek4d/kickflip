@@ -38,7 +38,7 @@ const QUIET_END = 'quiet hours’ end';
 
 export const POLLS = Object.freeze([
   // GitHub and PRs
-  { id: 'github-poll', group: 'github', name: 'GitHub poll and checks', what: 'Looks at PRs, checks and merges, fetches each board’s branches and pulls Main; the same poll reads Linear, sends the reviewers’ Slack links and digests, and sends queued pushes.',
+  { id: 'github-poll', group: 'github', name: 'GitHub poll and checks', what: 'Looks at PRs, checks and merges, fetches each board’s branches and pulls Main, and files open issues no task names on a board that pulls in issues; the same poll reads Linear, sends the reviewers’ Slack links and digests, and sends queued pushes.',
     every: MINUTE, cadence: PRESENCE, runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'review-digest', group: 'github', name: 'Review digest', what: 'Posts each reviewer’s day digest of PRs waiting on them, weekdays only.',
     every: DAY, cadence: QUIET_END, runs: 'Hub', where: 'hub/slack.mjs' },

@@ -112,7 +112,8 @@
 
   // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
   // The Board defaults section, right under Usage: defaults is hub/views.mjs hubView's boardDefaults. Builders and
-  // Orchestrators every board takes; each Auto setting posts on or off to /_hub/settings/<its key, dashed>.
+  // Orchestrators every board takes; each Auto setting posts on or off, and Pull in issues its word, to
+  // /_hub/settings/<its key, dashed>.
   const boardDefaultsCard = (defaults) => `<section class="board-defaults"><h2 class="label">Board defaults</h2><div class="group"><div class="block">`
     + modelControl(defaults.builders, '/_hub/settings/claude-model') + modelControl(defaults.orchestrators, '/_hub/settings/orchestrator-model')
     + defaults.auto.map((v) => modelControl(v, `/_hub/settings/${v.name.replace(/_/g, '-')}`)).join('')

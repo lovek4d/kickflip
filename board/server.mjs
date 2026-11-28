@@ -5,7 +5,7 @@
 // the other files below through bin/board.mjs (store.mjs). Every write goes through files.mjs, as every process's does:
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_review, idle_notification, stage_splits, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_review, idle_notification, stage_splits, pull_issues, pull_issues_since, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, build-<target>, else build; scripts, kickflip, runs the scripts from the site's scripts/,
 // else from the repo's .kickflip/ (build-script.mjs scriptFileOf).
@@ -299,9 +299,12 @@
 //                                schedules (schedules.mjs), last_ref the ref of the task the last fire filed, or null
 //   POST /api/schedules          {id, text?, cadence?} rewords or re-cadences one, or {id, remove: true} removes it, waking
 //                                no session → the same answer; an unknown id or a bad cadence → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_review, idle_notification, stage_splits, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_review, idle_notification, stage_splits, pull_issues: off|assigned|all, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
 //                                overrides: the Board defaults board.json sets, {key: value} (settings.mjs overridesOf), defaults: Hub settings' Board defaults,
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
+//   GET  /api/issue-backlog?mode=assigned|all  {backlog: {count, more} | null}: the open issues turning Pull in issues on in
+//                                mode would file now (hub/issue-pull.mjs issueBacklog), null for a board that can't pull; 502 {error} when
+//                                GitHub can't be read (docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md)
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
 //   GET  /api/scripts            {source: repo | kickflip, repo: [name], scripts: [{name, text}]}: where the board's scripts live, the
 //                                executable .kickflip/ scripts at its main tip (build-script.mjs listRepoScripts) and its
@@ -311,7 +314,7 @@
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean | null, auto_build?: boolean | null, auto_review?: boolean | null, idle_notification?: boolean | null, stage_splits?: boolean | null (null takes the Board default), skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//   POST /api/settings           {auto_merge?: boolean | null, auto_build?: boolean | null, auto_review?: boolean | null, idle_notification?: boolean | null, stage_splits?: boolean | null, pull_issues?: off|assigned|all | null (null takes the Board default), pull_issues_since?: now | null (the mark below which Pull in issues skips an issue, or none), skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than a silent Board default (settings.mjs SILENT_DEFAULTS) moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, overrides, defaults, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused, unavailable}]}: the board's session
@@ -400,6 +403,7 @@ import { fireSchedules, readSchedules, setSchedule, removeSchedule } from './sch
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
+import { issueBacklog } from '../hub/issue-pull.mjs';
 import { joinOf } from '../hub/sessions.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { nodeBin } from '../bin/install.mjs';
@@ -1291,6 +1295,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (p === '/api/settings' && req.method === 'GET') {
         const settings = await readBoardSettings(here);
         return json(res, 200, { settings, ...(await autoOverrides()), paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES });
+      }
+      if (p === '/api/issue-backlog' && req.method === 'GET') {
+        const mode = url.searchParams.get('mode');
+        if (!['assigned', 'all'].includes(mode)) return json(res, 400, { error: 'mode takes assigned or all' });
+        const self = boardAt(here);
+        if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
+        try { return json(res, 200, { backlog: await issueBacklog(self, mode) }); } catch (e) { return json(res, 502, { error: `Couldn’t count the open issues: ${e.message}` }); }
       }
       // Board Settings' Description: the hub's manifest entry, which the router reads (settings.mjs readBoardDescription).
       if (p === '/api/description' && req.method === 'GET') return json(res, 200, readBoardDescription(here));

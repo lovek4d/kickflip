@@ -26,7 +26,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { githubFromOrigin } from './repos.mjs';
 import { prLinks, reviewLinks, topicItems } from '../board/review.mjs';
 import { cardPRs } from '../shared/card-prs.mjs';
-import { readBoardDefaults } from '../shared/hub-settings.mjs';
+import { boardDefaultValue, readBoardDefaults } from '../shared/hub-settings.mjs';
 import { appendEvent as appendBoardEvent } from '../board/files.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -161,12 +161,14 @@ export function prsOf(files, github) {
 // defaults: Hub settings' Board defaults, which a board.json key overrides (board/settings.mjs settingsOf).
 function boardOf(route, s, defaults = readBoardDefaults()) {
   const cfg = readJSON(path.join(s.dir, 'board.json'), {});
-  const auto = (k) => (typeof cfg[k] === 'boolean' ? cfg[k] : defaults[k]);
+  const auto = (k) => (boardDefaultValue(k, cfg[k]) ? cfg[k] : defaults[k]);
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
   const files = filesOf(s.dir, cfg, kind);
   const github = s.github;
   return {
     route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, files, prs: prsOf(files, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, ...(buildsLocally(s) ? { local: true } : {}), ...(s.hub === true ? { hub: true } : {}), auto_build: auto('auto_build'), ...(validBuildTarget(cfg.build_target) ? { build_target: cfg.build_target } : {}), ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}), auto_review: auto('auto_review'), skipDraft: cfg.skip_draft === true, autoMerge: auto('auto_merge'),
+    // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md (hub/issue-pull.mjs)
+    pullIssues: auto('pull_issues'), pullSince: typeof cfg.pull_issues_since === 'string' && Date.parse(cfg.pull_issues_since) ? cfg.pull_issues_since : null,
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
     tickets: cfg.tickets, reviewers: names(cfg.reviewers), reviewerLogins: reviewerLogins(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };

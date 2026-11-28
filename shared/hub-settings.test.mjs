@@ -46,17 +46,20 @@ test('the setters refuse a bad value with a status and write nothing', async () 
 
 // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md,
 // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md
-test("Board defaults read their built-ins until settings.json says otherwise, Automatically stage split tickets on and the rest off, and save on or off for their keys only", async () => {
+test("Board defaults read their built-ins until settings.json says otherwise, Automatically stage split tickets on, Pull in issues off and the rest off, and save on or off, or Pull in issues' words, for their keys only", async () => {
   const h = home();
-  assert.deepEqual(readBoardDefaults(h), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true });
+  assert.deepEqual(readBoardDefaults(h), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true, pull_issues: 'off' });
   await setBoardDefault('auto_review', 'on', h);
   await setBoardDefault('auto_merge', 'off', h);
   await setBoardDefault('stage_splits', 'off', h);
   assert.deepEqual(read(h).boardDefaults, { auto_review: true, auto_merge: false, stage_splits: false });
-  assert.deepEqual(readBoardDefaults(h), { auto_build: false, auto_review: true, auto_merge: false, idle_notification: false, stage_splits: false });
+  assert.deepEqual(readBoardDefaults(h), { auto_build: false, auto_review: true, auto_merge: false, idle_notification: false, stage_splits: false, pull_issues: 'off' });
   await assert.rejects(setBoardDefault('auto_review', 'yes', h), { status: 400, message: 'auto-review takes on or off' });
   await assert.rejects(setBoardDefault('prs', 'on', h), { status: 400, message: 'no board default "prs"' });
+  await assert.rejects(setBoardDefault('pull_issues', 'on', h), { status: 400, message: 'pull-issues takes off, assigned or all' });
   assert.deepEqual(read(h).boardDefaults, { auto_review: true, auto_merge: false, stage_splits: false });
+  assert.equal(await setBoardDefault('pull_issues', 'assigned', h), 'assigned');
+  assert.equal(readBoardDefaults(h).pull_issues, 'assigned');
 });
 
 test('a pause-at and a hub rules edit made at once both survive, in this process and across processes', async () => {

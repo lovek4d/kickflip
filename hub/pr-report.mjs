@@ -203,11 +203,18 @@ export function checksOf(rollup) {
 // head branches, for the poll to link a PR opened by hand on a card's branch.
 const OPEN_QUERY_FIELDS = 'pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { number headRefName isCrossRepository } }';
 
-// prs: [{repo, pr}], each once; repos: [owner/name], each once. → {login: the account's, rate: {remaining, resetAt}, results,
-// open}, results lined up with prs, each fetchPR's shape {view, issueComments, reviewComments, reviews}, or {error} for a PR
-// GitHub didn't answer; open maps each repo GitHub answered to its open PRs [{number, headRefName, isCrossRepository}].
+// docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md: a repo a board pulls issues from also lists
+// its newest 100 open issues, for hub/issue-pull.mjs, with how many are open in all.
+export const ISSUES_LISTED = 100;
+const ISSUE_QUERY_FIELDS = `issues(states: OPEN, first: ${ISSUES_LISTED}, orderBy: {field: CREATED_AT, direction: DESC}) { totalCount nodes { number title url createdAt author { login } assignees(first: 10) { nodes { login } } } }`;
+
+// prs: [{repo, pr}], each once; repos: [owner/name], each once; issueRepos: [owner/name], each once, the repos to list open
+// issues of. → {login: the account's, rate: {remaining, resetAt}, results, open, issues}, results lined up with prs, each
+// fetchPR's shape {view, issueComments, reviewComments, reviews}, or {error} for a PR GitHub didn't answer; open maps each
+// repo GitHub answered to its open PRs [{number, headRefName, isCrossRepository}]; issues maps each issue repo GitHub
+// answered to {total, nodes: [{number, title, url, createdAt, author, assignees}]}, newest first.
 // Throws when the query fails as a whole.
-export async function fetchPRs(prs, repos = []) {
+export async function fetchPRs(prs, repos = [], issueRepos = []) {
   const aliases = prs.map(({ repo, pr }, i) => {
     const [owner, name] = repo.split('/');
     return `pr${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(pr)}) { ${PR_QUERY_FIELDS} } }`;
@@ -216,8 +223,13 @@ export async function fetchPRs(prs, repos = []) {
     const [owner, name] = repo.split('/');
     aliases.push(`open${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${OPEN_QUERY_FIELDS} }`);
   });
+  issueRepos.forEach((repo, i) => {
+    const [owner, name] = repo.split('/');
+    aliases.push(`issues${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${ISSUE_QUERY_FIELDS} }`);
+  });
   const { data, errors = [] } = await graphql(`query { viewer { login } rateLimit { remaining resetAt } ${aliases.join(' ')} }`);
   const open = Object.fromEntries(repos.flatMap((repo, i) => (data[`open${i}`]?.pullRequests ? [[repo, data[`open${i}`].pullRequests.nodes]] : [])));
+  const issues = Object.fromEntries(issueRepos.flatMap((repo, i) => (data[`issues${i}`]?.issues ? [[repo, { total: data[`issues${i}`].issues.totalCount, nodes: data[`issues${i}`].issues.nodes }]] : [])));
   const results = prs.map(({ repo, pr }, i) => {
     const p = data[`pr${i}`]?.pullRequest;
     if (!p) return { error: `${repo}#${pr}: ${errors.find((e) => e.path?.[0] === `pr${i}`)?.message || 'GitHub did not answer for it'}` };
@@ -235,7 +247,7 @@ export async function fetchPRs(prs, repos = []) {
       reviews: (p.reviews?.nodes ?? []).map((r) => ({ id: r.databaseId ?? null, user: user(r.author), submitted_at: r.submittedAt ?? null, body: r.body ?? null, state: r.state ?? null, html_url: r.url ?? null })),
     };
   });
-  return { login: data.viewer?.login ?? null, rate: data.rateLimit ?? null, results, open };
+  return { login: data.viewer?.login ?? null, rate: data.rateLimit ?? null, results, open, issues };
 }
 
 // Whole word, any case: "kickflip-board" matches, "kickflipping" doesn't.

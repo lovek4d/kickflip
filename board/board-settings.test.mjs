@@ -351,7 +351,7 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", async () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_review":false,"idle_notification":false,"stage_splits":true,"skip_draft":false,"prs":true}\n', err: '' });
+  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_review":false,"idle_notification":false,"stage_splits":true,"pull_issues":"off","skip_draft":false,"prs":true}\n', err: '' });
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
   for (const name of ['auto-merge', 'auto-build', 'auto-review', 'skip-draft', 'idle-notification']) {
     const before = cfg();
@@ -625,7 +625,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting stage-splits on', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting stage-splits on', 'setting pull-issues off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });
@@ -946,7 +946,7 @@ test("an Auto setting a board doesn't set follows Hub settings' Board defaults, 
   write(site('audit', 'board.json'), { title: 'Audit', items: 'waves', auto_merge: false });
   write(site('orch', 'data', 'events.jsonl'), '');
   write(site('audit', 'data', 'events.jsonl'), '');
-  assert.deepEqual(readBoardDefaults(home), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true });
+  assert.deepEqual(readBoardDefaults(home), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true, pull_issues: 'off' });
 
   // A hub default reaches each board that doesn't override it, and tells its session as a settings change would.
   assert.deepEqual(await saveBoardDefault('auto_merge', 'on'), ['/orch: auto-merge on']);
@@ -984,6 +984,50 @@ test("an Auto setting a board doesn't set follows Hub settings' Board defaults, 
   assert.deepEqual([(await settings()).stage_splits, overridesOf(cfg())], [true, { stage_splits: true }]);
   assert.deepEqual(await board('settings', 'set', 'stage-splits', 'default', '--site', 'orch'), { code: 0, out: 'stage-splits default (off)\n', err: '' });
   assert.equal(lines(site('orch', 'data', 'events.jsonl')).length, told);
+});
+
+// docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
+test("Pull in issues is a three-way Board default a board can override, wakes no session, and only-new marks each board it turns on", async (t) => {
+  const { saveBoardSettings, overridesOf, saveBoardDefault } = await import('./store.mjs');
+  const { readBoardDefaults } = await import('../shared/hub-settings.mjs');
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
+  boardsManifest();
+  const cfg = (route = 'orch') => read(site(route, 'board.json'));
+  const settings = async (route = 'orch') => JSON.parse((await board('settings', '--site', route)).out);
+  write(site('orch', 'board.json'), { title: 'Orch', items: 'waves' });
+  write(site('audit', 'board.json'), { title: 'Audit', items: 'waves', pull_issues: 'off' });
+  write(site('orch', 'data', 'events.jsonl'), '');
+  write(site('audit', 'data', 'events.jsonl'), '');
+  assert.equal(readBoardDefaults(home).pull_issues, 'off');
+  assert.equal((await settings()).pull_issues, 'off');
+
+  const now = new Date('2026-11-27T12:00:00Z');
+  assert.deepEqual(await saveBoardDefault('pull_issues', 'assigned', { from: 'now', now }), ['/orch: pull-issues assigned, new issues from now']);
+  assert.deepEqual([(await settings()).pull_issues, cfg().pull_issues_since, cfg('audit').pull_issues_since], ['assigned', now.toISOString(), undefined]);
+  assert.deepEqual(await saveBoardDefault('pull_issues', 'all'), ['/orch: pull-issues all'], 'already on, its mark stays');
+  assert.equal(cfg().pull_issues_since, now.toISOString());
+  assert.equal(fs.readFileSync(site('orch', 'data', 'events.jsonl'), 'utf8'), '', 'the hub poll acts on it, so no session is told');
+  await assert.rejects(saveBoardDefault('pull_issues', 'on'), /pull-issues takes off, assigned or all/);
+  await saveBoardDefault('pull_issues', 'off');
+  assert.deepEqual(await saveBoardDefault('pull_issues', 'all', { from: 'all' }), ['/orch: pull-issues all, every open issue']);
+  assert.equal('pull_issues_since' in cfg(), false, 'all drops the mark');
+
+  assert.deepEqual(overridesOf(cfg('audit')), { pull_issues: 'off' });
+  assert.deepEqual(await board('settings', 'set', 'pull-issues', 'assigned', '--site', 'audit'), { code: 0, out: 'pull-issues assigned\n', err: '' });
+  assert.deepEqual(await board('settings', 'set', 'pull-issues', 'default', '--site', 'audit'), { code: 0, out: 'pull-issues default (all)\n', err: '' });
+  assert.match((await board('settings', 'set', 'pull-issues', 'on', '--site', 'audit')).err, /pull-issues takes off, assigned or all, or default/);
+  assert.deepEqual(await board('settings', 'set', 'pull-issues-since', 'now', '--site', 'audit'), { code: 0, out: 'pull-issues-since now\n', err: '' });
+  assert.ok(Date.parse(cfg('audit').pull_issues_since) > 0);
+  assert.deepEqual(await board('settings', 'set', 'pull-issues-since', 'all', '--site', 'audit'), { code: 0, out: 'pull-issues-since all\n', err: '' });
+  assert.equal('pull_issues_since' in cfg('audit'), false);
+
+  const saved = await saveBoardSettings(site('audit'), { pull_issues: 'assigned', pull_issues_since: 'now' });
+  assert.deepEqual([saved.changed, saved.settings.pull_issues, Date.parse(cfg('audit').pull_issues_since) > 0], [['pull_issues'], 'assigned', true]);
+  await assert.rejects(saveBoardSettings(site('audit'), { pull_issues: true }), /pull_issues takes off, assigned or all, or null/);
+  await assert.rejects(saveBoardSettings(site('audit'), { pull_issues_since: 'yesterday' }), /pull_issues_since takes now or null/);
+  await saveBoardDefault('pull_issues', 'off');
 });
 
 // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md

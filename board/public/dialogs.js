@@ -573,5 +573,33 @@
   }
   const confirm = (message, { signal } = {}) => Promise.resolve(!signal?.aborted && window.confirm(message));
   const notice = (message) => { window.alert(message); return Promise.resolve(); };
-  globalThis.BoardDialogs = { confirm, notice, fitSheet, focusField, repoSheet, ticketsControl };
+  // A question with more answers than confirm's two: a sheet with title, message, a button per choice ({value, label}),
+  // the first the default, and Cancel. → the value tapped, or null for Cancel, Escape or a tap outside.
+  function choose(title, message, choices) {
+    const { esc } = BoardUI;
+    return new Promise((resolve) => {
+      const previous = document.activeElement;
+      const el = document.createElement('dialog');
+      el.setAttribute('class', 'sheet choose-sheet');
+      el.setAttribute('aria-labelledby', 'chooseTitle');
+      el.innerHTML = `<h2 id="chooseTitle" tabindex="-1">${esc(title)}</h2><p>${esc(message)}</p><div class="sheet-actions">`
+        + choices.map((c, i) => `<button type="button" class="${i ? 'ghost' : 'primary'}" data-choose="${esc(c.value)}">${esc(c.label)}</button>`).join('')
+        + '<button type="button" class="ghost" data-choose-cancel>Cancel</button></div>';
+      let answer = null;
+      el.addEventListener('click', (e) => {
+        const b = e.target.closest?.('[data-choose]');
+        if (b) answer = b.dataset.choose;
+        if (b || e.target.closest?.('[data-choose-cancel]') || BoardUI.onBackdrop(e, el)) el.close();
+      });
+      el.addEventListener('close', () => {
+        el.remove();
+        if (previous?.isConnected) previous.focus({ preventScroll: true });
+        resolve(answer);
+      });
+      document.body.appendChild(el);
+      el.showModal();
+      el.querySelector('[data-choose]')?.focus({ preventScroll: true });
+    });
+  }
+  globalThis.BoardDialogs = { confirm, notice, choose, fitSheet, focusField, repoSheet, ticketsControl };
 })();

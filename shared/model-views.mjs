@@ -1,10 +1,10 @@
 // The Board defaults section's controls, drawn by ui-hub.js modelControl in Hub settings: Builders and Orchestrators,
 // the hub's picks, which every board takes (docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md),
-// and the Auto settings, which a board can override
+// and the Auto settings and Pull in issues, which a board can override
 // (docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md).
 // → {name, label, value: the choice on, choices: [{value, label, on}], description}
 
-const NAMES = { opus: 'Opus', auto: 'Auto', sonnet: 'Sonnet', on: 'On', off: 'Off' };
+const NAMES = { opus: 'Opus', auto: 'Auto', sonnet: 'Sonnet', on: 'On', off: 'Off', assigned: 'Assigned only', all: 'All' };
 
 // docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
 const BUILDERS = {
@@ -52,6 +52,13 @@ const AUTO = {
     on: 'When the orchestrator splits a task you approved, each split lands in Todo as staged, skipping New.',
     off: 'Each split of a task you approved comes in as an ask through New, which the orchestrator sorts.',
   }],
+  // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
+  pull_issues: ['Pull in issues', {
+    off: 'Issues come onto a board only when you add them.',
+    assigned: 'The hub files each open issue assigned to you on a board’s GitHub repo that no task names, as a task to discuss.',
+    all: 'The hub files each open issue on a board’s GitHub repo that no task names, as a task to discuss.',
+  }],
 };
-// defaults: shared/hub-settings.mjs readBoardDefaults. → one view per Auto setting, named by its board.json key.
-export const autoViews = (defaults) => Object.entries(AUTO).map(([key, [label, words]]) => view(key, label, words, defaults[key] ? 'on' : 'off'));
+// defaults: shared/hub-settings.mjs readBoardDefaults. → one view per Auto setting, named by its board.json key, its
+// value on or off, or the word a setting with choices holds.
+export const autoViews = (defaults) => Object.entries(AUTO).map(([key, [label, words]]) => view(key, label, words, typeof defaults[key] === 'boolean' ? (defaults[key] ? 'on' : 'off') : defaults[key]));

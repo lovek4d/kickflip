@@ -520,10 +520,12 @@ ${BoardNewTask.markup()}`,
         after: () => load(),
       });
       // The settings whose answer is /_hub/api/hub's JSON, which repaints the page in place.
-      const REPAINTS = ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/auto-build', '/_hub/settings/auto-review', '/_hub/settings/auto-merge', '/_hub/settings/idle-notification', '/_hub/settings/stage-splits',
+      const REPAINTS = ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/auto-build', '/_hub/settings/auto-review', '/_hub/settings/auto-merge', '/_hub/settings/idle-notification', '/_hub/settings/stage-splits', '/_hub/settings/pull-issues',
         '/_hub/settings/tasks-in-progress', '/_hub/settings/serves', '/_hub/settings/land-tests', '/_hub/settings/pause-at', '/_hub/settings/keep-going'];
+      // Whether a submit to action is Pull in issues' default turned on from Off, which asks first (below).
+      const pullAsks = (action) => action === '/_hub/settings/pull-issues' && last?.boardDefaults?.auto?.find((v) => v.name === 'pull_issues')?.value === 'off';
       const forms = HubKit.forms(B, {
-        accepts: (action, form) => [...REPAINTS, '/_hub/settings/keep-awake'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
+        accepts: (action, form) => !pullAsks(action) && ([...REPAINTS, '/_hub/settings/keep-awake'].includes(action) || Boolean(form?.closest?.('.hold-banner'))),
         answer(out, action) {
           if (REPAINTS.includes(action)) {
             last = out; flash = null; paint();
@@ -537,6 +539,38 @@ ${BoardNewTask.markup()}`,
           ctx.sidebarChanged?.();
         },
         fail(message) { flash = { text: message, error: true }; paint(); },
+      });
+      // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md: Pull in issues turned on from Off
+      // first counts the open issues the boards taking the default would file (GET /_hub/api/issue-backlog), asks whether
+      // to pull them all or only new ones, and posts the choice with the answer as from, repainting as HubKit.forms
+      // would; Cancel sends nothing. HubKit.forms leaves that form to it while the default is Off.
+      B.on(B.root, 'submit', async (e) => {
+        const form = e.target;
+        const value = e.submitter?.value;
+        if (!pullAsks(form.getAttribute?.('action'))) return;
+        e.preventDefault();
+        if (!value || value === 'off') return;
+        const fail = (text) => { flash = { text, error: true }; paint(); };
+        let from;
+        try {
+          const r = await fetch(`/_hub/api/issue-backlog?mode=${value}`, { headers: { accept: 'application/json' } });
+          const out = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(out.error || `the hub answered ${r.status}`);
+          const { count = 0, more = false, boards = [] } = out.backlog || {};
+          const n = `${count}${more ? '+' : ''}`;
+          const one = count === 1 && !more;
+          from = !count ? 'all' : await BoardDialogs.choose(`Pull in ${n} open issue${one ? '' : 's'}?`,
+            `${n} open issue${one ? '' : 's'} on ${boards.map((r) => `/${r}`).join(', ')} ${one ? 'is' : 'are'} on no task${value === 'assigned' ? ' and assigned to you' : ''}. Pull them all in now, or only issues opened from now on?`,
+            [{ value: 'all', label: `Pull all ${n}` }, { value: 'now', label: 'Only new ones' }]);
+        } catch (err) { if (B.alive()) fail(`Couldn’t count the open issues: ${err.message}`); return; }
+        if (!from || !B.alive()) return;
+        try {
+          const post = fetch('/_hub/settings/pull-issues', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ value, from }) })
+            .then(async (r) => [r, await r.json().catch(() => null)]);
+          const [r, out] = await BoardUI.waitOn(e.submitter, post, { group: form.querySelectorAll('button') });
+          if (!B.alive()) return;
+          if (r.ok && out) { last = out; flash = null; paint(); } else fail(out?.error || 'Could not save. Is the host awake?');
+        } catch { if (B.alive()) fail('Could not save. Is the host awake?'); }
       });
       HubKit.holdUntilLive(B, () => !answered);
       const load = HubKit.live(B, {

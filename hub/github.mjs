@@ -13,7 +13,9 @@
 // check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the daily wake,
 // at the end of quiet hours, to every board, changed or not. The same query lists each board repo's open PRs, and one
 // opened by hand on a card's branch is linked to the card (linkHandPRs,
-// docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md).
+// docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md). A board that pulls in issues also lists its
+// repo's open issues there, and each that no task names is filed on it (issue-pull.mjs,
+// docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md).
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -32,6 +34,7 @@ const PR_ENDED = ['MERGED', 'CLOSED'];
 import { runOwnerChecks } from './owner-checks.mjs';
 import { runReleaseWatch } from './release-watch.mjs';
 import { runTicketRetries } from './ticket-retry.mjs';
+import { pullIssues, pullRepo } from './issue-pull.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'linked'];
@@ -110,12 +113,14 @@ export async function checkGitHub({ every, manifest }) {
   const failed = [];
   const distinct = [...new Map(boards.flatMap((b) => b.prs).map((p) => [prKey(p), { repo: p.repo, pr: p.pr }])).values()];
   const repos = [...new Set(boards.flatMap(repoList))];
+  const issueRepos = [...new Set(boards.map(pullRepo).filter(Boolean))];
   let query = null;
-  if (distinct.length || repos.length) {
-    try { query = await fetchPRs(distinct, repos); } catch (e) { failed.push(e.message); }
+  if (distinct.length || repos.length || issueRepos.length) {
+    try { query = await fetchPRs(distinct, repos, issueRepos); } catch (e) { failed.push(e.message); }
   }
   const linked = new Map(boards.map((board) => [board.route, []]));
   if (query) for (const board of boards) linked.set(board.route, await linkHandPRs(board, query.open, failed));
+  if (query) for (const board of boards) await pullIssues(board, query.issues, query.login, failed);
   const raw = new Map(distinct.map((p, i) => [prKey(p), query ? query.results[i] : null]));
   const fallback = query?.login ?? null;
   const fetchKey = (p, me) => JSON.stringify([prKey(p), me]);
