@@ -1505,7 +1505,7 @@ export async function passOwnerCheck(site, key, check, found) {
 // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: the hub's release watch
 // (hub/release-watch.mjs) read version's tag run and npm. found: {state, url, failure, words}, state publishing,
 // published or failed, url the run's, failure a failed run's first failing test or null, words what published found. A
-// change of state is written on the item; published and failed each post a line, failed red, and failed wakes the
+// change of state is written on the item; published, failed and a move to publishing from failed or untagged each post a line, failed red, and failed wakes the
 // orchestrator with release-failed {key, version, url, failure}. A card whose release moved on is left alone.
 // → true when it wrote.
 export async function markRelease(site, key, version, { state, url, failure, words }) {
@@ -1518,6 +1518,9 @@ export async function markRelease(site, key, version, { state, url, failure, wor
   await writeJSON(source.file, itemFile);
   const link = url ? { link: url } : {};
   if (state === 'published') await appendStatus(site, key, 'release-published', { version, words }, link);
+  if (state === 'publishing' && was.state !== 'publishing') {
+    await appendStatus(site, key, 'release-publishing', { version, words: was.state === 'failed' ? 'its run is rerunning' : 'its tag has a run' }, link);
+  }
   if (state === 'failed') {
     await appendStatus(site, key, 'release-failed', { version, failure }, link);
     await appendEvent({ dir: site }, 'release-failed', { key, version, url, failure });

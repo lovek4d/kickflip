@@ -153,6 +153,7 @@ export const HUB_LINES = {
   'check-passed': { tone: 'green', mark: DONE, text: ({ found }) => fit('Check passed: ', found, '. Closed.') },
   // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md, linking the run.
   'release-published': { tone: 'green', mark: DONE, text: ({ version, words }) => fit(`Published ${version}: `, words, '. Tap Done.'), longest: { version: VERSION } },
+  'release-publishing': { tone: 'orange', mark: MOVE, text: ({ version, words }) => fit(`Release ${version} publishing: `, words), longest: { version: VERSION } },
   'findings-settled': { tone: 'green', mark: DONE, text: ({ filed }) => fit('Every finding is settled: ', filed ? `filed ${filed}` : 'none filed', '.') },
   'branch-merged': { tone: 'green', mark: DONE, text: ({ branch, into, host }) => fit('', `${branch} is merged into ${into} on ${host}`, ', so this task is Done.') },
   'branch-gone': { tone: 'green', mark: DONE, text: ({ branch, host }) => fit('', `${branch} is gone from ${host}`, ', so this task is Done.') },

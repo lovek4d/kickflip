@@ -98,6 +98,9 @@ test("a failed tag run marks the card red with the run's link and its first fail
   board.world.runs['v0.19.0'][0] = { ...board.world.runs['v0.19.0'][0], status: 'in_progress', conclusion: '' };
   await board.watch();
   assert.equal(board.item('F1').release.state, 'publishing');
+  assert.deepEqual(board.thread('r/F1').slice(1).map((l) => [l.line, l.text, l.link]), [['release-publishing', 'Release 0.19.0 publishing: its run is rerunning', url]]);
+  await board.watch();
+  assert.equal(board.thread('r/F1').length, 2, 'the publishing line posts once');
   board.world.runs['v0.19.0'][0] = { ...board.world.runs['v0.19.0'][0], status: 'completed', conclusion: 'success' };
   board.world.npm.push('0.19.0');
   await board.watch();
@@ -130,4 +133,5 @@ test('an untagged release stays untagged until its tag shows a run, then it is w
   board.world.runs['v0.20.0'] = [{ databaseId: 9, workflowName: 'release', status: 'in_progress', conclusion: '', url: 'https://github.com/o/r/actions/runs/9', createdAt: '2026-11-21T20:05:00Z' }];
   await board.watch();
   assert.equal(board.item('U1').release.state, 'publishing');
+  assert.deepEqual(board.thread('r/U1').map((l) => [l.line, l.text]), [['release-publishing', 'Release 0.20.0 publishing: its tag has a run']]);
 });
