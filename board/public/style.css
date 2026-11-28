@@ -34,7 +34,9 @@ textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-colo
 .pill { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--text); }
 .pill.hot { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
-main { max-width: 860px; margin: 0 auto; padding: 12px 16px 80px; }
+/* --edge is the gap on a scroller's top, left and right; --scrollbar-w is the classic bar's width the app.html head script measures, taken off the right padding so the bar sits inside the gap. */
+:root { --edge: 16px; --scrollbar-w: 0px; }
+main { max-width: 860px; margin: 0 auto; padding: var(--edge) var(--edge) 80px; }
 
 .waiting { background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--color-notice) 40%, var(--line));
   border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
@@ -56,7 +58,7 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px 80px; }
 .prompt button.deny { color: var(--color-danger); }
 .prompt .prompt-rule { margin: 6px 0 0; }
 
-.lane { margin-top: 14px; }
+.lane { margin-bottom: 14px; }
 .lane .list { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
 .lane .empty { padding: 10px 12px; color: var(--muted); }
 
@@ -581,9 +583,9 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .lane > summary .count { color: var(--muted); font-weight: 400; }
 /* The New strip above the lanes, headed like a lane (docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md):
    an ask's line grey while it waits, orange while it is processed, and blue once ingested. */
-.new-strip { margin-top: 14px; }
+.new-strip { margin-bottom: 14px; }
 .new-strip[hidden] { display: none; }
-.new-strip > .lane { margin-top: 0; }
+.new-strip > .lane { margin-bottom: 0; }
 /* The Orchestrator sub-head at the bottom of New: small grey caps, closed until tapped. */
 .new-orchestrator > summary { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 12px; border-top: 1px solid var(--line);
   list-style: none; cursor: pointer; user-select: none; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -744,7 +746,7 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
   .view-board .toast-stack { bottom: calc(var(--app-bottom, 0px) + var(--search-lift, 0px) + 83px + var(--fab-edge)); }
 }
 @media (min-width: 900px) {
-  .search-bar { top: 0; margin-top: -12px; }
+  .search-bar { top: calc(-1 * var(--edge)); margin-top: calc(-1 * var(--edge)); }
 }
 .top .nav #refresh:disabled, .top .nav a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
 /* The header's icon buttons drawn as the bare icon, with a count on its corner (the waits chip). */
@@ -1246,7 +1248,7 @@ button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto
   .split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--pane-w, minmax(0, 1fr)); align-items: start; }
   /* The board's column scrolls itself, below the header, so its bar sits on the left pane's right edge and the window never scrolls. */
   html:has(.view-board:not([hidden])) { overflow: hidden; }
-  .split > main { max-width: none; margin: 0; height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; }
+  .split > main { max-width: none; margin: 0; height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; padding-right: max(0px, calc(var(--edge) - var(--scrollbar-w))); }
   /* The board's + sits at the bottom right of the left pane: the pane ends at the middle of the space right of the sidebar. */
   .view-board .fab { right: calc(var(--pane-w, calc(50% - var(--sidebar-w, 0px) / 2)) + var(--fab-edge)); }
   body.has-sidebar { --sidebar-w: var(--sb-w, 272px); }
@@ -1275,7 +1277,7 @@ button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto
   .reader-sheet::backdrop { background: transparent; }
   .sheet.reader-sheet[data-over] { top: calc(56px + var(--below, 0) * var(--peek)); }
   .sheet.reader-sheet:is([data-over], [data-under]) { border-top-width: 1px; border-top-left-radius: 12px; }
-  .board-pane { display: flex; flex-direction: column; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
+  .board-pane { display: flex; flex-direction: column; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: var(--edge) max(0px, calc(var(--edge) - var(--scrollbar-w))) 0 var(--edge); border-left: 1px solid var(--line); }
   /* The landing: the board's name, one line and the chips, then the glance, in a column at the pane's top. */
   .pane-landing { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 6px; text-align: center; }
   .pane-landing h2 { margin: 0; font-size: 18px; }

@@ -32,6 +32,7 @@ window.BoardBoot = (function () {
 </script>
 <script>try { if (localStorage.getItem('hub:sidebarCollapsed') === '1') document.documentElement.classList.add('sb-collapsed'); } catch {}</script>
 <script>try { if (localStorage.getItem('hub:oled') === '1') document.documentElement.dataset.oled = ''; } catch {}</script>
+<script>document.addEventListener('DOMContentLoaded', () => { const p = document.body.appendChild(document.createElement('div')); p.style.cssText = 'position:absolute;top:-99px;width:100px;height:50px;overflow:scroll'; document.documentElement.style.setProperty('--scrollbar-w', (p.offsetWidth - p.clientWidth) + 'px'); p.remove(); });</script>
 <link rel="stylesheet" href="/_hub/colors.css?v={{colorsVersion}}">
 <link rel="stylesheet" href="/_hub/app/style.css">
 <link rel="stylesheet" href="/_hub/app/hub.css">
