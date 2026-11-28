@@ -658,6 +658,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
    Loading board... and from 5 s the slow-host line, muted. */
 .board-loading { display: none; }
 .view-board.loading .split > :not(.board-loading) { display: none; }
+.view-board.loading .fab { display: none; }
 .view-board.loading .board-loading { display: grid; grid-column: 1 / -1; min-height: calc(100dvh - 120px); place-content: center; justify-items: center; gap: 10px; padding: 32px 24px; text-align: center; }
 .board-loading-moon { color: var(--muted); animation: pulse 2.2s ease-in-out infinite; }
 .board-loading-name { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
