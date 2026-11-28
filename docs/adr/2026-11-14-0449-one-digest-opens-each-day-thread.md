@@ -11,7 +11,7 @@ Each reviewer's day thread for a board opens with that day's digest, and only th
 The count reads "1 PR pending review" at one and "All reviewed" at none. One function, `postDigest`, posts it, with two triggers:
 
 - **Schedule:** from 09:00 on a weekday in the Slack timezone. A day the hub misses goes out on its first poll after, any time that day; a missed morning is no longer skipped at 17:00. Weekends have no scheduled digest.
-- **On demand:** any day, weekends included, when a link is owed to a reviewer whose thread for the day isn't open yet. The digest goes first and the link follows as a reply, as on a weekday morning.
+- **On demand:** any day, weekends included, when a link is owed to a reviewer whose thread for the day isn't open yet. The digest goes first, and its reply for the PR is the link, as on a weekday morning ([a digest reply is its PR's link](2026-11-28-0026-a-digest-reply-is-its-prs-link.md)).
 
 The digest is the same either way: same top message, same replies, same live count. The "<board> reviews" header line that used to open a thread with no digest is gone, and so is `openDayThread`. `slack say` on a day with no thread opens it with the digest too. A thread an earlier build opened with that header still gets the weekday digest as one reply, the reviewer's mention before its first line.
 

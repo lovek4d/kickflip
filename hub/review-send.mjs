@@ -5,7 +5,8 @@
 // docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md,
 // docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md). Each reviewer gets one thread per board for each
 // Slack day, in the DM the hub opens with them, and the day's digest opens it: from quiet hours' end on a weekday, or as the
-// day's first link to that reviewer goes. Each PR's link goes in as a reply, and nothing else about the PR does.
+// day's first link to that reviewer goes. Each PR's link goes in as a reply, and nothing else about the PR does: the
+// digest's reply for a PR is its link to a reviewer it hasn't gone to.
 // Each posted link and reply is reacted to with its PR's state, the reaction removed once the state stops holding, and
 // one an earlier build gave a state line is edited once to drop it
 // (docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md). A failed send stays owed
@@ -20,7 +21,8 @@ import { reviewDue, postLink, recordReaction, recordEdit, postDigest, recordHead
 const refusedToken = (e) => e.status === 400 && e.message === 'Slack refused the token.';
 
 async function sendBoard(board, slack, now) {
-  const due = await reviewDue(board.dir, { now, emojis: () => slack.prEmojis() });
+  const owed = () => reviewDue(board.dir, { now, emojis: () => slack.prEmojis() });
+  let due = await owed();
   if (due.waiting) return { sent: [], failed: [] };
   const sent = [];
   const failed = [];
@@ -31,8 +33,10 @@ async function sendBoard(board, slack, now) {
       failed.push(`${board.route}: ${what}: ${e.message}`);
     }
   };
-  // The digest goes first, as it opens the day's thread.
-  for (const reviewer of (due.digest?.reviewers || []).filter((r) => r.owed)) {
+  // The digest goes first, as it opens the day's thread. Its reply for a PR is that PR's link to a reviewer it hasn't
+  // gone to, so what is owed is read again after it.
+  const digests = (due.digest?.reviewers || []).filter((r) => r.owed);
+  for (const reviewer of digests) {
     await attempt(`digest to ${reviewer.name}`, async () => {
       await postDigest(board.dir, due.digest.date, reviewer, {
         channel: reviewer.sent?.channel || await slack.openDM(reviewer.slack_user),
@@ -40,6 +44,7 @@ async function sendBoard(board, slack, now) {
       });
     });
   }
+  if (digests.length) due = await owed();
   // A posted digest header's count follows its reviewer's PRs as they leave review; a failed edit stays owed.
   for (const h of due.headers) {
     await attempt(`digest count for ${h.reviewer}`, async () => {
@@ -47,11 +52,13 @@ async function sendBoard(board, slack, now) {
       await recordHeader(board.dir, h);
     });
   }
-  // A link waits on its reviewer's digest, whose failure fails their links until the next poll.
+  // A link waits on its reviewer's digest, whose failure fails their links until the next poll: the rest of the digest
+  // may be that link.
+  const unsent = new Set((due.digest?.reviewers || []).filter((r) => r.owed).map((r) => r.name));
   for (const link of due.links) {
     await attempt(`link to ${link.reviewer} on ${link.pr}`, async () => {
       const thread = await dayThread(board.dir, due.date, link.reviewer);
-      if (!thread) throw new Error("the day's thread waits on its digest");
+      if (!thread || unsent.has(link.reviewer)) throw new Error("the day's thread waits on its digest");
       await postLink(board.dir, link, thread, () => slack.post({ channel: thread.channel, thread_ts: thread.ts, text: link.text, attachments: link.attachments }));
     });
   }

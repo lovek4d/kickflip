@@ -26,9 +26,9 @@ const fail = (msg) => { throw new BoardError(msg); };
 // data/pr-slack.json {<owner/repo#n>: {links: {<reviewer>: {channel, thread_ts, ts, reactions}},
 // replies: [{id, text, to: {<reviewer>: {channel?, ts, reactions}}}]}}: each PR's Slack messages, apart from the cards
 // that hold it. Every reviewer of a PR has their own link message, in the owner's DM with them: a reply in that day's
-// thread when it has thread_ts, else posted top-level before the day threads. replies are the PR's other messages
-// already posted, which get the link's reactions: a one-PR digest reply (id digest-<date>), and the bumps sent before
-// they stopped; one never posted is never sent. A message carries ts once posted, and posting_at while its post is out
+// thread when it has thread_ts, else posted top-level before the day threads; the digest's reply for the PR is its link
+// when the link hadn't gone. replies are the PR's other messages already posted, which get the link's reactions: a
+// later day's digest reply (id digest-<date>), and the bumps sent before they stopped; one never posted is never sent. A message carries ts once posted, and posting_at while its post is out
 // or after its ts couldn't be recorded; either way it is never posted again. reactions are the ones the hub added,
 // [{kind, name}], the PR state and the emoji; a name alone is an earlier build's, its kind read from LEGACY_REACTIONS.
 // state is the words of the state line an earlier build put in the message, until an edit takes it out.
@@ -589,7 +589,11 @@ export async function slackLink(site, pr, to, { now = new Date(), readPR = prSiz
   let size;
   try { size = await readPR({ repo, pr: ref.number, login: settingsOf(cfg).github_login }); } catch (e) { fail(e.message); }
   const message = prLink(key, size, card, { ticket });
+  const linked = () => readPRSlack(site).then((record) => held(record[key]?.links?.[reviewer.name]));
+  const before = await linked();
   const thread = await openDayThread(site, client, reviewer, now);
+  // The digest that opened the thread may have sent the link as its reply for the PR.
+  if (!before && await linked()) return { lines: [`sent ${key} to ${reviewer.name}'s day thread`] };
   await slackCall(postLink(site, { pr: key, reviewer: reviewer.name }, thread, () => client.post({ channel: thread.channel, thread_ts: thread.ts, ...message })));
   return { lines: [`sent ${key} to ${reviewer.name}'s day thread`] };
 }
@@ -636,19 +640,24 @@ export async function postDigest(site, date, reviewer, { channel, post }) {
   });
   const sent = entry(await readJSON(file, {}));
   const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.live.shown) }));
+  // Each one-PR reply is recorded in the PR's messages as it posts, so a digest that fails part way counts what went.
   for (const [i, reply] of sent.replies.entries()) {
-    if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text, attachments: reply.attachments }));
+    const ts = reply.ts || (held(reply) ? null : await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text, attachments: reply.attachments })));
+    if (reply.pr && ts) await recordDigestReply(site, date, reviewer.name, { pr: reply.pr, text: reply.text, channel: sent.channel, thread_ts: top, ts });
   }
-  // A one-PR reply is a message about that PR, so it joins the PR's posted replies and gets its reactions (the digest
-  // file keeps only the days still heard); a reply naming several PRs gets none.
-  const posted = entry(await readJSON(file, {})).replies.filter((r) => r.pr && r.ts);
-  if (posted.length) await editJSON(prSlackFile(site), (all) => {
-    const id = `digest-${date}`;
-    for (const reply of posted) {
-      const rec = all[reply.pr] ||= { links: {}, replies: [] };
-      const bump = rec.replies.find((r) => r.id === id) || rec.replies[rec.replies.push({ id, text: reply.text, to: {} }) - 1];
-      bump.to[reviewer.name] ||= { channel: sent.channel, ts: reply.ts, reactions: [] };
-    }
-  });
   return { channel: sent.channel, ts: top };
 }
+// A digest reply is a message about its PR, so it gets the PR's reactions (the digest file keeps only the days still
+// heard). To a reviewer the PR's link hasn't gone to, it is that link, and review due owes none; otherwise it joins the
+// PR's posted replies, once.
+const recordDigestReply = (site, date, name, { pr, text, channel, thread_ts, ts }) => editJSON(prSlackFile(site), (all) => {
+  const rec = all[pr] ||= { links: {}, replies: [] };
+  if (!held(rec.links[name])) {
+    rec.links[name] = { reactions: [], ...rec.links[name], channel, thread_ts, ts };
+    return;
+  }
+  if (rec.links[name].ts === ts) return;
+  const id = `digest-${date}`;
+  const bump = rec.replies.find((r) => r.id === id) || rec.replies[rec.replies.push({ id, text, to: {} }) - 1];
+  bump.to[name] ||= { channel, ts, reactions: [] };
+});
