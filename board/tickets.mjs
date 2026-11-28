@@ -89,11 +89,12 @@ async function issueRunner(source, run) {
 // - assign(id) to the owner;
 // - comment(id, body) posts a comment;
 // - move(id, issue, target) → {state} it moved to, {} for a close with no state name, or null when the ticket is
-//   there or past it, or the source has no state for target.
+//   there or past it, or the source has no state for target. A wontdo target closes the ticket as not planned (GitHub)
+//   or moves it to a canceled state (Linear).
 // targets: the targets the source has a state for. followsPRs: the hub's PR poll moves its tickets (followPRs).
 const PROVIDERS = {
   github: {
-    targets: ['done'],
+    targets: ['done', 'wontdo'],
     followsPRs: false,
     unreached: { link: 'Repo must be owner/name on GitHub.', move: 'the board has no GitHub repo' },
     async open(source, { repo, run = runRepo }) {
@@ -131,6 +132,10 @@ const PROVIDERS = {
         assign: (id) => call(['issue', 'edit', id.slice(1), '--repo', repo, '--add-assignee', '@me']),
         comment: (id, body) => call(['issue', 'comment', id.slice(1), '--repo', repo, '--body', body]),
         async move(id, issue, target) {
+          if (target === 'wontdo') {
+            await call(['issue', 'close', id.slice(1), '--repo', repo, '--reason', 'not planned']);
+            return { notPlanned: true };
+          }
           if (target !== 'done') return null;
           await call(['issue', 'close', id.slice(1), '--repo', repo]);
           return {};
@@ -139,7 +144,7 @@ const PROVIDERS = {
     },
   },
   linear: {
-    targets: ['started', 'review', 'done'],
+    targets: ['started', 'review', 'done', 'wontdo'],
     followsPRs: true,
     unreached: { link: 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub › Integrations › Linear, or pick another ticket source.', move: 'Hub has no Linear key' },
     open(source, { linearFetch }) {
@@ -190,8 +195,8 @@ export const cardIdOf = (ticket) => (ticket.startsWith('#') ? `GH-${ticket.slice
 
 // The ticket a card's move asks for: a close → done, a build's start → started, a handover (a PR, a push, a verified
 // merge-ready build) → review.
-export function ticketTarget({ start, done, handover }) {
-  if (done) return 'done';
+export function ticketTarget({ start, done, handover, wontdo }) {
+  if (done) return wontdo ? 'wontdo' : 'done';
   if (start) return 'started';
   if (handover) return 'review';
   return null;
@@ -205,11 +210,13 @@ const TARGET_WORDS = { started: 'In Progress', review: 'In Review', done: 'Done'
 export async function moveTicket(source, item, target, ctx = {}) {
   if (!source || !target || !item.ticket || !ticketIn(source, item.ticket)) return null;
   const provider = PROVIDERS[source.source];
-  if (!acts(provider, item.ticket_created, target)) return null;
+  // A pulled task's won't-do is the owner's call on an issue they chose to pull, whoever it is assigned to.
+  const created = Boolean(item.ticket_created) || target === 'wontdo';
+  if (!acts(provider, created, target)) return null;
   const failed = (why) => ({ kind: 'ticket-failed', inputs: { ticket: item.ticket, ...(target === 'done' ? {} : { to: TARGET_WORDS[target] }), why: String(why?.message || why).split('\n')[0] } });
   try {
     const calls = await provider.open(source, ctx);
-    return calls ? await arbitrate(provider, calls, item.ticket, Boolean(item.ticket_created), target) : failed(provider.unreached.move);
+    return calls ? await arbitrate(provider, calls, item.ticket, created, target) : failed(provider.unreached.move);
   } catch (e) { return failed(e); }
 }
 
@@ -245,7 +252,7 @@ async function arbitrate(provider, calls, ticket, created, target) {
   if (assign) await calls.assign(ticket);
   const moved = moves ? await calls.move(ticket, issue, target) : null;
   if (!moved) return assign ? { kind: 'ticket-assigned', inputs: { ticket } } : null;
-  if (target === 'done') return { kind: 'ticket-closed', inputs: { ticket, ...moved } };
+  if (target === 'done' || target === 'wontdo') return { kind: 'ticket-closed', inputs: { ticket, ...moved } };
   return { kind: 'ticket-moved', inputs: { ticket, ...moved, assigned: assign } };
 }
 

@@ -34,7 +34,7 @@ const PR_ENDED = ['MERGED', 'CLOSED'];
 import { runOwnerChecks } from './owner-checks.mjs';
 import { runReleaseWatch } from './release-watch.mjs';
 import { runTicketRetries } from './ticket-retry.mjs';
-import { pullIssues, pullRepo } from './issue-pull.mjs';
+import { closeGone, listedRepo, pullIssues } from './issue-pull.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'linked'];
@@ -113,14 +113,14 @@ export async function checkGitHub({ every, manifest }) {
   const failed = [];
   const distinct = [...new Map(boards.flatMap((b) => b.prs).map((p) => [prKey(p), { repo: p.repo, pr: p.pr }])).values()];
   const repos = [...new Set(boards.flatMap(repoList))];
-  const issueRepos = [...new Set(boards.map(pullRepo).filter(Boolean))];
+  const issueRepos = [...new Set(boards.map(listedRepo).filter(Boolean))];
   let query = null;
   if (distinct.length || repos.length || issueRepos.length) {
     try { query = await fetchPRs(distinct, repos, issueRepos); } catch (e) { failed.push(e.message); }
   }
   const linked = new Map(boards.map((board) => [board.route, []]));
   if (query) for (const board of boards) linked.set(board.route, await linkHandPRs(board, query.open, failed));
-  if (query) for (const board of boards) await pullIssues(board, query.issues, query.login, failed);
+  if (query) for (const board of boards) { await pullIssues(board, query.issues, query.login, failed); await closeGone(board, query.issues, failed); }
   const raw = new Map(distinct.map((p, i) => [prKey(p), query ? query.results[i] : null]));
   const fallback = query?.login ?? null;
   const fetchKey = (p, me) => JSON.stringify([prKey(p), me]);

@@ -5,7 +5,8 @@
 // ISSUES_LISTED per repo.
 import { fetchPRs, ISSUES_LISTED } from './pr-report.mjs';
 import { appendEvent, listBoards } from './boards.mjs';
-import { appendStatus, fileIssues, namedTickets } from '../board/cards.mjs';
+import { appendStatus, fileIssues, issueClosedUpstream, namedTickets } from '../board/cards.mjs';
+import { ticketIn } from '../board/tickets.mjs';
 import { overridesOf, readBoardJSON, storedTickets } from '../board/settings.mjs';
 
 // The repo a board can pull issues from: its own, while its ticket source is GitHub and its tasks live in one item file.
@@ -16,6 +17,31 @@ export function issueRepo(board) {
 }
 // The repo the poll lists issues of for board: issueRepo while its Pull in issues is on. → owner/name, or null
 export const pullRepo = (board) => (board.pullIssues === 'off' ? null : issueRepo(board));
+
+// The tasks of board still open whose ticket is an issue of its repo: [{key, ticket}].
+const openIssueTasks = (board) => board.files.flatMap(({ slug, itemFile }) => itemFile.items
+  .filter((item) => item.lane !== 'done' && ticketIn({ source: 'github' }, item.ticket))
+  .map((item) => ({ key: `${slug}/${item.id}`, ticket: item.ticket })));
+// The repo the poll lists open issues of for board: pullRepo, else issueRepo while a task of the board is open on one of
+// its issues, to see it closed. → owner/name, or null
+export const listedRepo = (board) => pullRepo(board) || (issueRepo(board) && openIssueTasks(board).length ? issueRepo(board) : null);
+
+// docs/adr/2026-11-28-0400-a-pulled-tasks-wont-do-closes-its-issue-and-an-issue-closed-upstream-closes-its-task.md
+// One poll's closing on board: each open task whose issue is not among the repo's open issues is closed Done when no
+// build has started it, else gets a thread line (cards.mjs issueClosedUpstream). The list is trusted only when it holds
+// every open issue of the repo. → the keys closed
+export async function closeGone(board, listed, failed) {
+  const repo = listedRepo(board);
+  if (!repo || !listed[repo] || listed[repo].total > ISSUES_LISTED) return [];
+  const open = new Set(listed[repo].nodes.map((issue) => `#${issue.number}`));
+  const closed = [];
+  for (const { key, ticket } of openIssueTasks(board)) {
+    if (open.has(ticket)) continue;
+    try { if (await issueClosedUpstream(board.dir, key, ticket) === 'closed') closed.push(key); }
+    catch (e) { failed.push(`${board.route}: could not close ${key} for its closed issue (${e.message})`); }
+  }
+  return closed;
+}
 
 // The owner, whose issues Assigned only keeps: the ticket source's gh account, else the board's GitHub login, else
 // login, the account the poll's query ran as; the ticket layer's assignee rule reads the same one (board/tickets.mjs).

@@ -1198,8 +1198,12 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (title !== undefined && site && item.lane === 'todo') await clearRefusal(site, key);
   // The ticket stays open while the card waits on its owner step or its release, while another open card shares it, and
   // when the card closed on a PR closed unmerged.
-  const keepsTicket = done && (item.owner_step || item.release || closing?.[0] === 'prs-closed' || await sharedOpen(site, key, item.ticket));
-  const target = keepsTicket ? null : ticketTarget({ start, done, handover });
+  // The ticket is already closed when the card closed on its issue closing upstream.
+  const keepsTicket = done && (item.owner_step || item.release || ['prs-closed', 'issue-closed'].includes(closing?.[0]) || await sharedOpen(site, key, item.ticket));
+  // docs/adr/2026-11-28-0400-a-pulled-tasks-wont-do-closes-its-issue-and-an-issue-closed-upstream-closes-its-task.md: a
+  // pulled task closed with no build behind it closes its issue as not planned.
+  const wontdo = Boolean(item.ticket_pulled) && !merged && !landed && !item.landed_sha && !records.some((r) => r && builds(r)) && !item.branch && !hasPR(item) && !item.pushed && !item.merge_ready;
+  const target = keepsTicket ? null : ticketTarget({ start, done, handover, wontdo });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo });
   if (moved) {
     const { line, lines } = await appendStatus(site, key, moved.kind, moved.inputs);
@@ -1538,7 +1542,7 @@ export async function retryTicketMove(site, key, ctx = {}) {
   const { itemFile, item } = await loadItem(site, key);
   const target = item.ticket_retry;
   if (!target) return false;
-  if (target === 'done' && item.lane !== 'done') { await keepTicketRetry(site, key, null); return false; }
+  if (['done', 'wontdo'].includes(target) && item.lane !== 'done') { await keepTicketRetry(site, key, null); return false; }
   const moved = await moveTicket(await boardSource(site), item, target, { ...ctx, repo: boardRepoOf(site, itemFile) });
   if (moved?.kind === 'ticket-failed') return false;
   await keepTicketRetry(site, key, null);
@@ -2024,13 +2028,31 @@ export const fileIssues = (site, slug, pick) => ticketWrite(site, async () => {
   for (const issue of pick(await namedTickets(site))) {
     const opened = [issue.author?.login && `by ${issue.author.login}`, issue.createdAt && `on ${issue.createdAt.slice(0, 10)}`].filter(Boolean).join(' ');
     try {
-      const { key } = await createItem(site, `${slug}/GH-${issue.number}`, { ticket: `#${issue.number}`, title: issue.title, phase: 'discussing',
+      const { key } = await createItem(site, `${slug}/GH-${issue.number}`, { ticket: `#${issue.number}`, title: issue.title, phase: 'discussing', pulled: true,
         notes: `Pulled in from GitHub issue #${issue.number}${opened ? `, opened ${opened}` : ''}: ${issue.url}` });
       filed.push({ key, issue });
     } catch (e) { failed.push(`could not file issue #${issue.number} (${e.message})`); }
   }
   return { filed, failed };
 });
+
+// docs/adr/2026-11-28-0400-a-pulled-tasks-wont-do-closes-its-issue-and-an-issue-closed-upstream-closes-its-task.md
+// The hub's poll found the issue ticket of task key closed or gone upstream (hub/issue-pull.mjs closeGone). A task no
+// build has started closes Done, its ticket left alone; a started one gets a thread line, once. → 'closed', 'noted', or
+// null when there was nothing to do.
+export async function issueClosedUpstream(site, key, ticket) {
+  const { source, item } = await loadItem(site, key);
+  if (item.lane === 'done' || item.ticket !== ticket) return null;
+  const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
+  const started = item.lane !== 'todo' || records.some((r) => r && builds(r)) || item.branch || hasPR(item) || item.pushed || item.merge_ready;
+  if (!started) {
+    await setItem(site, key, { done: true, force: true, closing: ['issue-closed', { ticket }] });
+    return 'closed';
+  }
+  if ((await readLog(threadFile(site, key))).some((m) => m.line === 'issue-closed-started')) return null;
+  await appendStatus(site, key, 'issue-closed-started', { ticket });
+  return 'noted';
+}
 
 // Card added, just written, blocks each of blocked (ids in its item file, or keys), which gains it as a dep, and waits
 // on each of deps: on a site, an Unblocks and a Blocked by line, one in each thread, for each.
@@ -2059,7 +2081,7 @@ export async function blockLines(site, added, blocked, deps, options) {
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
 // is required, so no card an agent adds reads New; a card added with no phase starts discussing. filed is the
 // orchestrator's item add on a board, which names where the task came from and links the tasks it names.
-async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, split, size, model, phase, state, relate, fromAsk, text: said, implement, intake = false, filed = false, replyOn }, options) {
+async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, split, size, model, phase, state, relate, fromAsk, text: said, implement, intake = false, filed = false, replyOn, pulled = false }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
   // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md: the one staging an agent files.
@@ -2116,6 +2138,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (filed) await refuseUnlinked(site, 'the new task', `${item.title}\n${body}`, linked);
   const writeReply = await replyFirst(site, linked.filter(Boolean), replyOn);
   if (ask) item.from_ask = ask;
+  if (pulled) item.ticket_pulled = true;
   // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md: a task added with no phase, held or not, starts discussing.
   const opened = phase === undefined && !ask && Boolean(site);
   if (phase !== undefined) item.phase = phase;

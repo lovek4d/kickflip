@@ -122,7 +122,7 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
   return api;
 }
 
-const STAGES = { started: 1, review: 2, done: 3 };
+const STAGES = { started: 1, review: 2, done: 3, wontdo: 3 };
 export function stageOf(state) {
   if (['completed', 'canceled'].includes(state.type)) return 3;
   if (state.type === 'started') return /review/i.test(state.name) ? 2 : 1;
@@ -138,6 +138,7 @@ export function stateFor(states, target) {
   const review = (s) => /review/i.test(s.name);
   if (target === 'started') return of('started').find((s) => /^in progress$/i.test(s.name)) || of('started').find((s) => !review(s)) || null;
   if (target === 'review') return of('started').find(review) || null;
+  if (target === 'wontdo') return of('canceled')[0] || null;
   if (target === 'done') return of('completed').find((s) => /^done$/i.test(s.name)) || of('completed')[0] || null;
   return null;
 }

@@ -106,7 +106,11 @@ export const HUB_LINES = {
   // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md: the first line of a task the hub's
   // poll filed from an open issue (hub/issue-pull.mjs).
   'issue-pulled': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Pulled in from GitHub issue ${ticket}.`, longest: { ticket: TICKET } },
-  'ticket-closed': { tone: 'green', mark: DONE, text: ({ ticket, state }) => (state ? fit(`Closed ${ticket}: moved to `, state, '.') : `Closed ${ticket}.`), longest: { ticket: TICKET } },
+  'ticket-closed': { tone: 'green', mark: DONE, text: ({ ticket, state, notPlanned }) => (state ? fit(`Closed ${ticket}: moved to `, state, '.') : `Closed ${ticket}${notPlanned ? ' as not planned' : ''}.`), longest: { ticket: TICKET, notPlanned: true } },
+  // docs/adr/2026-11-28-0400-a-pulled-tasks-wont-do-closes-its-issue-and-an-issue-closed-upstream-closes-its-task.md: the
+  // hub's poll found a task's issue closed or gone upstream (hub/issue-pull.mjs closeGone).
+  'issue-closed': { tone: 'grey', mark: DONE, text: ({ ticket }) => `Issue ${ticket} closed upstream, so this task closed.`, longest: { ticket: TICKET } },
+  'issue-closed-started': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Issue ${ticket} closed upstream; this task was already started.`, longest: { ticket: TICKET } },
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
   // card, holding its question ids; orange while any of them is open (domain.mjs threadOf), grey once none is.
   'questions-added': { tone: 'grey', mark: QUESTIONS, text: ({ count }) => `${count} question${count === 1 ? '' : 's'} added`, longest: { count: 1000 } },

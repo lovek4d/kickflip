@@ -85,6 +85,34 @@ test('assigned only pulls the owner\'s issues, only-new skips those before the m
   assert.deepEqual(linear.items(), [], 'a board on Linear pulls no GitHub issues');
 });
 
+test('an issue gone from the open list closes its unstarted task Done, notes a started one once, and leaves the rest', async () => {
+  const board = fileBoard('gone', {}, [
+    { id: 'T-1', title: 'feat: unstarted', ticket: '#61', lane: 'todo', phase: 'ready' },
+    { id: 'T-2', title: 'feat: started', ticket: '#62', lane: 'todo', phase: 'ready', branch: 'b' },
+    { id: 'T-3', title: 'feat: still open', ticket: '#63', lane: 'todo' },
+    { id: 'T-4', title: 'feat: done', ticket: '#64', lane: 'done' },
+    { id: 'T-5', title: 'feat: no ticket', lane: 'todo' },
+  ]);
+  writeIssues(home, 'o/r', [issue(63)]);
+  const before = calls(home).length;
+  const first = await board.poll();
+  assert.deepEqual(first.failed, []);
+  const lane = (id) => board.items().find((i) => i.id === id).lane;
+  assert.deepEqual(['T-1', 'T-2', 'T-3', 'T-4', 'T-5'].map(lane), ['done', 'todo', 'todo', 'done', 'todo']);
+  assert.deepEqual(board.thread('gone/T-1').map((l) => l.text).filter((t) => /upstream/.test(t)), ['Issue #61 closed upstream, so this task closed.']);
+  assert.deepEqual(board.thread('gone/T-2').map((l) => l.text), ['Issue #62 closed upstream; this task was already started.']);
+  assert.equal(calls(home).slice(before).some((a) => a[0] === 'issue'), false, 'closing the task does not call the closed issue back');
+  await board.poll();
+  assert.equal(board.thread('gone/T-2').length, 1, 'said once');
+});
+
+test('with more open issues than the poll lists, a missing one is not taken as closed', async () => {
+  const board = fileBoard('gone-big', {}, [{ id: 'T-1', title: 'feat: old', ticket: '#5', lane: 'todo', phase: 'ready' }]);
+  writeIssues(home, 'o/r', Array.from({ length: 120 }, (_, i) => issue(300 - i)));
+  await board.poll();
+  assert.equal(board.items()[0].lane, 'todo');
+});
+
 test('a board takes the Hub default unless it overrides it', async () => {
   writeIssues(home, 'o/r', [issue(31)]);
   await setBoardDefault('pull_issues', 'all');
