@@ -132,6 +132,9 @@ const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST
 
 // The push stub creates its file before it writes its line, so only lines ending in a newline are read.
 const pushes = () => (fs.existsSync(path.join(home, 'push-calls.jsonl')) ? fs.readFileSync(path.join(home, 'push-calls.jsonl'), 'utf8').split('\n').slice(0, -1).map((l) => JSON.parse(l)) : []);
+// A push's body counts the reply files written since the site's last push, whoever's they are, so a test that reads bodies
+// first takes the push mark to now, leaving earlier tests' replies behind it.
+const markPushNow = () => fs.writeFileSync(path.join(site, 'data', 'push-state.json'), JSON.stringify({ last_push: new Date().toISOString() }));
 const flag = (call, name) => (call.includes(`--${name}`) ? call[call.indexOf(`--${name}`) + 1] : undefined);
 
 // docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
@@ -2602,6 +2605,7 @@ test('a symlink in the board\'s public folder that leads outside its roots is no
 // docs/adr/2026-11-26-2200-a-let-me-know-when-reminder-pushes-once.md
 test("a task's reminder pushes once through every hold when it needs the owner or is done, then clears, and its task leaves the live row silent", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
+  markPushNow();
   const before = pushes().length;
   const since = () => pushes().slice(before);
   const reminders = () => since().filter((c) => flag(c, 'kind') === 'reminder').map((c) => [flag(c, 'tag'), flag(c, 'title'), flag(c, 'body'), c.includes('--urgent')]);
@@ -2641,6 +2645,7 @@ test("the owner's bell on a task: one urgent push at each stage change, none whi
   const ownerFile = path.join(site, 'data', 'owner.json');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
   const stored = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === id);
+  markPushNow();
   const before = pushes().length;
   const bells = () => pushes().slice(before).filter((c) => flag(c, 'kind') === 'reminder').map((c) => [flag(c, 'tag'), flag(c, 'title'), flag(c, 'body'), c.includes('--urgent')]);
   const card = (over = {}) => ({ id: 'WB', title: 'Ring the bell', lane: 'todo', ...stored('WB'), ...over });
