@@ -120,7 +120,10 @@ export async function checkGitHub({ every, manifest }) {
   }
   const linked = new Map(boards.map((board) => [board.route, []]));
   if (query) for (const board of boards) linked.set(board.route, await linkHandPRs(board, query.open, failed));
-  if (query) for (const board of boards) { await pullIssues(board, query.issues, query.login, failed); await closeGone(board, query.issues, failed); }
+  for (const board of boards) {
+    await pullIssues(board, query?.issues ?? {}, query?.login ?? null, failed);
+    if (query) await closeGone(board, query.issues, failed);
+  }
   const raw = new Map(distinct.map((p, i) => [prKey(p), query ? query.results[i] : null]));
   const fallback = query?.login ?? null;
   const fetchKey = (p, me) => JSON.stringify([prKey(p), me]);

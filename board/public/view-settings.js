@@ -468,7 +468,7 @@
       { key: 'stage_splits', label: 'Automatically stage split tickets', sub: () => 'When the orchestrator splits a task you approved, each split lands in Todo as staged, skipping New.',
         saved: (on) => (on ? 'Saved. Splits of a task you approved land in Todo as staged.' : 'Saved. Splits of a task you approved come in through New.') },
       // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
-      { key: 'pull_issues', label: 'Pull in issues', choices: ['off', 'assigned', 'all'], sub: () => 'The hub files each open issue on this board’s GitHub repo that no task names as a task to discuss. Needs GitHub issues as the ticket source.',
+      { key: 'pull_issues', label: 'Pull in issues', choices: ['off', 'assigned', 'all'], sub: () => 'The hub files each open issue on this board’s GitHub repo or Linear project that no task names as a task to discuss. Needs GitHub issues or Linear as the ticket source.',
         saved: (value) => ({ off: 'Saved. Issues come onto this board only when you add them.', assigned: 'Saved. Open issues assigned to you come in as tasks to discuss.',
           all: 'Saved. Each open issue no task names comes in as a task to discuss.' })[value] },
     ];

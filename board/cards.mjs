@@ -2013,12 +2013,13 @@ export const setItem = (site, key, changes, options) => (changes.ticket !== unde
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
 // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
-// The tickets a task on the board names, in any lane, its Done archive included: each stored ticket, and #n for a
-// GH-<n> id. → a Set
+// The tickets a task on the board names, in any lane, its Done archive included: each stored ticket, each legacy Linear
+// link, and #n for a GH-<n> id. → a Set
 export async function namedTickets(site) {
   const named = new Set();
   const add = (item) => {
     if (item?.ticket) named.add(String(item.ticket));
+    for (const id of item?.linear || []) named.add(String(id));
     const n = /^GH-([1-9]\d*)$/.exec(String(item?.id ?? ''))?.[1];
     if (n) named.add(`#${n}`);
   };
@@ -2027,17 +2028,15 @@ export async function namedTickets(site) {
   return named;
 }
 // The hub's issue pull (hub/issue-pull.mjs): under the tickets lock, so an issue the board is creating at ready is named
-// by its task before it is read, files each issue pick(named) returns, [{number, title, url, author}], as a discussing
-// GH-<n> task in item file slug, its ticket linked. → {filed: [{key, issue}], failed: [message]}
+// by its task before it is read, files each entry pick(named) returns, [{id, ticket, title, notes}], as a discussing task
+// <id> in item file slug, its ticket linked. → {filed: [{key, entry}], failed: [message]}
 export const fileIssues = (site, slug, pick) => ticketWrite(site, async () => {
   const filed = [], failed = [];
-  for (const issue of pick(await namedTickets(site))) {
-    const opened = [issue.author?.login && `by ${issue.author.login}`, issue.createdAt && `on ${issue.createdAt.slice(0, 10)}`].filter(Boolean).join(' ');
+  for (const entry of pick(await namedTickets(site))) {
     try {
-      const { key } = await createItem(site, `${slug}/GH-${issue.number}`, { ticket: `#${issue.number}`, title: issue.title, phase: 'discussing', pulled: true,
-        notes: `Pulled in from GitHub issue #${issue.number}${opened ? `, opened ${opened}` : ''}: ${issue.url}` });
-      filed.push({ key, issue });
-    } catch (e) { failed.push(`could not file issue #${issue.number} (${e.message})`); }
+      const { key } = await createItem(site, `${slug}/${entry.id}`, { ticket: entry.ticket, title: entry.title, phase: 'discussing', pulled: true, notes: entry.notes });
+      filed.push({ key, entry });
+    } catch (e) { failed.push(`could not file issue ${entry.ticket} (${e.message})`); }
   }
   return { filed, failed };
 });

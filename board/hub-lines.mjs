@@ -105,7 +105,7 @@ export const HUB_LINES = {
   'ticket-commented': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Commented on ${ticket}.`, longest: { ticket: TICKET } },
   // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md: the first line of a task the hub's
   // poll filed from an open issue (hub/issue-pull.mjs).
-  'issue-pulled': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Pulled in from GitHub issue ${ticket}.`, longest: { ticket: TICKET } },
+  'issue-pulled': { tone: 'blue', mark: MOVE, text: ({ ticket, from = 'GitHub' }) => `Pulled in from ${from} issue ${ticket}.`, longest: { ticket: TICKET, from: 'Linear' } },
   'ticket-closed': { tone: 'green', mark: DONE, text: ({ ticket, state, notPlanned }) => (state ? fit(`Closed ${ticket}: moved to `, state, '.') : `Closed ${ticket}${notPlanned ? ' as not planned' : ''}.`), longest: { ticket: TICKET, notPlanned: true } },
   // docs/adr/2026-11-28-0400-a-pulled-tasks-wont-do-closes-its-issue-and-an-issue-closed-upstream-closes-its-task.md: the
   // hub's poll found a task's issue closed or gone upstream (hub/issue-pull.mjs closeGone).

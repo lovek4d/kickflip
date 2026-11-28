@@ -646,9 +646,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          off, it comes in as an ask (item add --ask --split)
   settings set pull-issues off|assigned|all             Pull in issues, off by default: assigned or all, the
                                                          hub's GitHub poll files each open issue (assigned to the
-                                                         owner, or any) on the board's repo that no task names
-                                                         as a discussing GH-<n> task, with an issue-pulled event.
-                                                         Only a board whose tickets are GitHub issues pulls
+                                                         owner, or any) on the board's repo, or in its
+                                                         Linear project, that no task names as a discussing task,
+                                                         with an issue-pulled event. Only a board whose tickets
+                                                         are GitHub issues or Linear pulls
   settings set pull-issues-since now|all                 now: Pull in issues skips the issues opened before now;
                                                          all: it takes every open issue
   settings set auto-merge on|off                        on: the hub's tick merges an approved PR once CI is green and

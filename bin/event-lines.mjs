@@ -100,7 +100,7 @@ export const ON_CARD = {
   'script-decline': (c) => `the owner declined the script you offered on ${c}: don't run it another way; ask in its thread what they want instead`,
   'card-added': (c) => `${c} added by an agent: triage it first with item triage <its key> --title --phase and its links, then item notes`,
   // docs/adr/2026-11-27-2345-a-board-pulls-in-open-github-issues-no-task-names.md
-  'issue-pulled': (c, e) => `${c} pulled in from GitHub issue ${e.data?.ticket} (${e.data?.url}), discussing: read the issue, retitle it Conventionally with item set <its key> --title and link it, then move it on as any filed task`,
+  'issue-pulled': (c, e) => `${c} pulled in from ${e.data?.source === 'linear' ? 'Linear' : 'GitHub'} issue ${e.data?.ticket} (${e.data?.url}), discussing: read the issue, retitle it Conventionally with item set <its key> --title and link it, then move it on as any filed task`,
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md,
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed
   // for the ask; its waits line carries its key and the cards it likely relates to.

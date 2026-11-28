@@ -2,11 +2,14 @@
 // Pull in issues: on a board whose Pull in issues is assigned or all (board/settings.mjs settingsOf pull_issues), the hub's
 // GitHub poll files each open issue on the board's repo that no task names as a discussing GH-<n> task, and wakes the
 // orchestrator to sort it. The issues ride the poll's one GraphQL query (pr-report.mjs fetchPRs), its newest
-// ISSUES_LISTED per repo.
+// ISSUES_LISTED per repo. A board on Linear pulls the open issues of its Linear project the same way, read by the same
+// poll through Hub's Linear key (linear.mjs openIssues), filed as a discussing task keyed by the issue's identifier
+// (docs/adr/2026-11-28-0330-a-linear-board-pulls-in-open-issues-of-its-project.md).
 import { fetchPRs, ISSUES_LISTED } from './pr-report.mjs';
 import { appendEvent, listBoards } from './boards.mjs';
 import { appendStatus, fileIssues, issueClosedUpstream, namedTickets } from '../board/cards.mjs';
 import { ticketIn } from '../board/tickets.mjs';
+import { linearWorks, savedClient } from './linear.mjs';
 import { overridesOf, readBoardJSON, storedTickets } from '../board/settings.mjs';
 
 // The repo a board can pull issues from: its own, while its ticket source is GitHub and its tasks live in one item file.
@@ -43,49 +46,87 @@ export async function closeGone(board, listed, failed) {
   return closed;
 }
 
+
+// The project a Linear board can pull issues from: its ticket source's, while its tasks live in one item file. → {team, project}, or null
+export function linearProject(board) {
+  const source = board.kind === 'file' ? storedTickets(board.tickets) : null;
+  return source?.source === 'linear' ? { team: source.team, project: source.project } : null;
+}
+
 // The owner, whose issues Assigned only keeps: the ticket source's gh account, else the board's GitHub login, else
 // login, the account the poll's query ran as; the ticket layer's assignee rule reads the same one (board/tickets.mjs).
 const ownerOf = (board, login) => storedTickets(board.tickets)?.account || board.githubLogin || login || null;
 
-// nodes: the query's open issues, newest first. mode: off | assigned | all; me: the owner's login; since: an ISO time, or
-// null; named: the tickets tasks name (board/cards.mjs namedTickets). → the issues to file, oldest first: each no task
-// names, created after since, and with assigned, assigned to me.
-export function issuesToPull(nodes, { mode, me, since, named }) {
-  if (mode === 'off') return [];
-  const mine = (issue) => Boolean(me) && (issue.assignees?.nodes || []).some((a) => a.login?.toLowerCase() === me.toLowerCase());
-  return nodes.filter((issue) => !named.has(`#${issue.number}`) && (!since || issue.createdAt > since) && (mode === 'all' || mine(issue))).reverse();
+// An issue as the pull files it, whichever source it came from: {id: the task's id, ticket, title, url, createdAt, author, mine: assigned to the owner}
+export const githubIssue = (issue, me) => ({
+  id: `GH-${issue.number}`, ticket: `#${issue.number}`, title: issue.title, url: issue.url, createdAt: issue.createdAt, author: issue.author?.login,
+  mine: Boolean(me) && (issue.assignees?.nodes || []).some((a) => a.login?.toLowerCase() === me.toLowerCase()),
+});
+// me: the id of Linear's viewer, the owner of the Linear key
+export const linearIssue = (issue, me) => ({
+  id: issue.identifier, ticket: issue.identifier, title: issue.title, url: issue.url, createdAt: issue.createdAt, author: issue.creator,
+  mine: Boolean(me) && issue.assignee === me,
+});
+
+// The open issues of board's source, newest first, as githubIssue and linearIssue make them, for a board that can pull
+// from one: GitHub's from listed (fetchPRs's issues; login: the query's viewer), Linear's asked of Linear. A source that
+// can't be read gives null: no GitHub list, or Hub without a working Linear key. Linear's refusal throws.
+// → {issues, more: whether the source holds more than were listed}, or null
+async function openIssues(board, listed, login) {
+  const repo = issueRepo(board);
+  if (repo) {
+    const found = listed[repo];
+    const me = ownerOf(board, login);
+    return found ? { issues: found.nodes.map((i) => githubIssue(i, me)), more: found.total > ISSUES_LISTED } : null;
+  }
+  const project = linearProject(board);
+  const linear = project && linearWorks() ? savedClient() : null;
+  if (!linear) return null;
+  const { issues, more } = await linear.openIssues(project);
+  return { issues: issues.map((i) => linearIssue(i, linear.saved.viewer?.id)), more };
 }
 
+// issues: openIssues'; mode: off | assigned | all; since: an ISO time, or null; named: the tickets tasks name
+// (board/cards.mjs namedTickets). → the issues to file, oldest first: each no task names, created after since, and with
+// assigned, assigned to the owner.
+export function issuesToPull(issues, { mode, since, named }) {
+  if (mode === 'off') return [];
+  return issues.filter((issue) => !named.has(issue.ticket) && (!since || issue.createdAt > since) && (mode === 'all' || issue.mine)).reverse();
+}
+
+const SOURCE_WORDS = { github: 'GitHub', linear: 'Linear' };
 // One poll's pull onto board. listed: fetchPRs's issues; login: the query's viewer. Each task it files gets a
 // first line and an issue-pulled event. → the keys filed
 export async function pullIssues(board, listed, login, failed) {
-  const repo = pullRepo(board);
-  if (!repo || !listed[repo]) return [];
-  const me = ownerOf(board, login);
-  const { filed, failed: refused } = await fileIssues(board.dir, board.files[0].slug,
-    (named) => issuesToPull(listed[repo].nodes, { mode: board.pullIssues, me, since: board.pullSince, named }));
+  if (board.pullIssues === 'off') return [];
+  const source = issueRepo(board) ? 'github' : 'linear';
+  let open;
+  try { open = await openIssues(board, listed, login); } catch (e) { failed.push(`${board.route}: could not read the open issues (${e.message})`); return []; }
+  if (!open) return [];
+  const { filed, failed: refused } = await fileIssues(board.dir, board.files[0].slug, (named) => issuesToPull(open.issues, { mode: board.pullIssues, since: board.pullSince, named }).map((issue) => {
+    const opened = [issue.author && `by ${issue.author}`, issue.createdAt && `on ${issue.createdAt.slice(0, 10)}`].filter(Boolean).join(' ');
+    return { id: issue.id, ticket: issue.ticket, title: issue.title, url: issue.url, notes: `Pulled in from ${SOURCE_WORDS[source]} issue ${issue.ticket}${opened ? `, opened ${opened}` : ''}: ${issue.url}` };
+  }));
   for (const why of refused) failed.push(`${board.route}: ${why}`);
-  for (const { key, issue } of filed) {
-    const ticket = `#${issue.number}`;
+  for (const { key, entry } of filed) {
     try {
-      await appendStatus(board.dir, key, 'issue-pulled', { ticket });
-      await appendEvent(board, 'issue-pulled', { key, ticket, title: issue.title, url: issue.url });
+      await appendStatus(board.dir, key, 'issue-pulled', { ticket: entry.ticket, ...(source === 'linear' ? { from: 'Linear' } : {}) });
+      await appendEvent(board, 'issue-pulled', { key, ticket: entry.ticket, title: entry.title, url: entry.url, ...(source === 'linear' ? { source } : {}) });
     } catch (e) { failed.push(`${board.route}: could not tell the orchestrator of ${key} (${e.message})`); }
   }
   return filed.map((f) => f.key);
 }
 
 // The backlog ask's count: how many open issues turning board's pull on in mode would file now, of the newest
-// ISSUES_LISTED. → {count, more: whether the repo holds more open issues than were listed}, or null for a board that
-// can't pull. Throws when GitHub can't be read.
+// ISSUES_LISTED (Linear's first 100). → {count, more: whether the source holds more open issues than were listed}, or
+// null for a board that can't pull. Throws when the source can't be read.
 export async function issueBacklog(board, mode) {
   const repo = issueRepo(board);
-  if (!repo) return null;
-  const query = await fetchPRs([], [], [repo]);
-  const listed = query.issues[repo];
-  if (!listed) throw new Error(`GitHub did not list ${repo}'s issues`);
-  const count = issuesToPull(listed.nodes, { mode, me: ownerOf(board, query.login), since: null, named: await namedTickets(board.dir) }).length;
-  return { count, more: listed.total > ISSUES_LISTED };
+  if (!repo && !linearProject(board)) return null;
+  const query = repo ? await fetchPRs([], [], [repo]) : null;
+  const open = await openIssues(board, query?.issues ?? {}, query?.login ?? null);
+  if (!open) throw new Error(repo ? `GitHub did not list ${repo}'s issues` : 'Hub has no working Linear key');
+  return { count: issuesToPull(open.issues, { mode, since: null, named: await namedTickets(board.dir) }).length, more: open.more };
 }
 
 // Hub settings' backlog ask, for Pull in issues' Board default turned on in mode: issueBacklog summed over each board that

@@ -84,7 +84,7 @@ export async function until(predicate, message, budget = 30000) {
 }
 
 // A stand-in for Linear's GraphQL API over world {key, viewer, org, teams: [{id, key, name, states, projects}], issues:
-// {<identifier>: {team, assignee, state}}}, answering by the operation each query names. fetch replaces the global
+// {<identifier>: {team, assignee, state, project?, title?, createdAt?, creator?}}}, answering by the operation each query names. fetch replaces the global
 // one; serve() puts the same API on a loopback port for a hub's KICKFLIP_LINEAR_URL.
 export function fakeLinear(world) {
   const calls = [];
@@ -124,6 +124,14 @@ export function fakeLinear(world) {
       const team = teamOf((t) => t.key === issue.team);
       const { id, name, type } = stateOf(team, issue.state);
       return ok({ issue: { identifier: variables.id, team: { key: team.key }, assignee: issue.assignee ? { id: issue.assignee } : null, state: { id, name, type } } });
+    }
+    if (query.includes('issues(first')) {
+      const open = (i) => !['completed', 'canceled'].includes(stateOf(teamOf((t) => t.key === i.team), i.state).type);
+      const nodes = Object.entries(world.issues)
+        .filter(([, i]) => i.team === variables.team && i.project === variables.project && open(i))
+        .sort(([, a], [, b]) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+        .map(([identifier, i]) => ({ identifier, title: i.title || identifier, url: `https://linear.app/${world.org.urlKey}/issue/${identifier}`, createdAt: i.createdAt || '2026-11-20T10:00:00Z', assignee: i.assignee ? { id: i.assignee } : null, creator: { name: i.creator || 'Reporter' } }));
+      return ok({ issues: { nodes: nodes.slice(0, 100), pageInfo: { hasNextPage: nodes.length > 100 } } });
     }
     const shape = (t) => ({ id: t.id, key: t.key, name: t.name, states: { nodes: t.states }, projects: { nodes: t.projects } });
     if (query.includes('teams(filter')) return ok({ teams: { nodes: world.teams.filter((t) => t.key === variables.key).map(shape) } });

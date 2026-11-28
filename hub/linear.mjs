@@ -93,6 +93,13 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
       if (!d.issueCreate.success) throw new LinearError('Linear did not create the issue.');
       return d.issueCreate.issue;
     },
+    // The open issues (not completed or canceled) of the source's project, newest first, up to 100. project is by id or name.
+    // → {issues: [{identifier, title, url, createdAt, assignee: id or null, creator: name or null}], more: whether the project holds more}
+    async openIssues({ team: teamKey, project }) {
+      const p = projectOf(await team(teamKey), project);
+      const d = await call(`query($team: String!, $project: ID!) { issues(first: 100, orderBy: createdAt, filter: { team: { key: { eq: $team } }, project: { id: { eq: $project } }, state: { type: { nin: ["completed", "canceled"] } } }) { nodes { identifier title url createdAt assignee { id } creator { name } } pageInfo { hasNextPage } } }`, { team: teamKey, project: p.id });
+      return { issues: d.issues.nodes.map((i) => ({ identifier: i.identifier, title: i.title, url: i.url, createdAt: i.createdAt, assignee: i.assignee?.id ?? null, creator: i.creator?.name ?? null })), more: d.issues.pageInfo.hasNextPage };
+    },
     // → {identifier, team, assignee, state: {id, name, type}} or null when Linear has no such issue.
     async issue(identifier) {
       try {
